@@ -1,0 +1,9 @@
+CREATE TABLE events (id INTEGER PRIMARY KEY, message TEXT, level TEXT, ratio REAL)
+  id INTEGER PK
+  message TEXT
+  level TEXT
+  ratio REAL
+
+INDEXES:
+  expr_idx: <expr>
+    DDL: CREATE INDEX expr_idx ON events (lower(message))

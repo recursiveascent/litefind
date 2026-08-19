@@ -1,0 +1,6 @@
+.kata.local.toml
+# roborev snapshots
+/.roborev/
+# superpowers SDD scratch
+/.superpowers/
+/litefind

@@ -1,0 +1,3 @@
+{"column":"message","rowid":1,"spans":[[11,18]],"table":"events","value":"connection timeout after 30s"}
+{"column":"message","rowid":2,"spans":[[6,13]],"table":"events","value":"retry timeout exceeded"}
+{"column":"message","rowid":4,"spans":[[9,16]],"table":"events","value":"line one\ntimeout on line two"}

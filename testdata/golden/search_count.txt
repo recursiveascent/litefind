@@ -1,0 +1,8 @@
+events:3
+config:2
+docs:1
+docs_fts:1
+ipkshadow:1
+gen:2
+blobs:1
+Äfts:1
