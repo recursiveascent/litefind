@@ -46,16 +46,15 @@ func TestParseInvocation(t *testing.T) {
 		t.Errorf("opts = %+v", inv.opts)
 	}
 
-	inv, err = parseInvocation([]string{"tables", "app.db", "--no-counts"})
+	inv, err = parseInvocation([]string{"--tables", "app.db", "--no-counts"})
 	if err != nil || inv.sub != "tables" || !inv.opts.noCounts {
 		t.Fatalf("tables parse: %+v, %v", inv, err)
 	}
 
-	// Flags may precede the subcommand — it is recognized as the first
-	// positional, not only at argv[0].
-	inv, err = parseInvocation([]string{"--json", "tables", "app.db"})
+	// Flags may appear after the database path.
+	inv, err = parseInvocation([]string{"app.db", "--tables", "--json"})
 	if err != nil || inv.sub != "tables" || !inv.opts.jsonOut {
-		t.Fatalf("flags-before-subcommand parse: %+v, %v", inv, err)
+		t.Fatalf("trailing mode flag parse: %+v, %v", inv, err)
 	}
 
 	// "--" makes a leading-dash pattern searchable.
@@ -64,21 +63,22 @@ func TestParseInvocation(t *testing.T) {
 		t.Fatalf("dash pattern parse: %+v, %v", inv, err)
 	}
 
-	inv, err = parseInvocation([]string{"schema", "app.db", "ev*"})
+	inv, err = parseInvocation([]string{"--schema", "app.db", "ev*"})
 	if err != nil || inv.sub != "schema" || inv.glob != "ev*" {
 		t.Fatalf("schema parse: %+v, %v", inv, err)
+	}
+
+	for _, pattern := range []string{"tables", "schema", "quickstart"} {
+		inv, err = parseInvocation([]string{pattern, "app.db"})
+		if err != nil || inv.sub != "search" || inv.pattern != pattern {
+			t.Errorf("pattern %q parse: %+v, %v", pattern, inv, err)
+		}
 	}
 
 	// --fts replaces PATTERN: no positional pattern expected.
 	inv, err = parseInvocation([]string{"--fts", "cats NEAR dogs", "app.db"})
 	if err != nil || inv.pattern != "" || inv.opts.fts == "" {
 		t.Fatalf("fts parse: %+v, %v", inv, err)
-	}
-
-	// quickstart: no db, no flags.
-	inv, err = parseInvocation([]string{"quickstart"})
-	if err != nil || inv.sub != "quickstart" {
-		t.Fatalf("quickstart parse: %+v, %v", inv, err)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestParseInvocationFTSFlagConflicts(t *testing.T) {
 }
 
 func TestParseInvocationInvalidFlags(t *testing.T) {
-	// Flags not allowed for a subcommand should error, naming the flag as
+	// Flags not allowed for a mode should error, naming the flag as
 	// it is actually spelled: one dash for a single-character flag, two
 	// for a long one. Where a flag has both spellings the canonical short
 	// one is reported (--ignore-case is named -i).
@@ -110,13 +110,12 @@ func TestParseInvocationInvalidFlags(t *testing.T) {
 		argv []string
 		flag string
 	}{
-		{[]string{"tables", "app.db", "-i"}, "-i"},
-		{[]string{"tables", "app.db", "--ignore-case"}, "-i"},
-		{[]string{"schema", "app.db", "--no-counts"}, "--no-counts"},
+		{[]string{"--tables", "app.db", "-i"}, "-i"},
+		{[]string{"--tables", "app.db", "--ignore-case"}, "-i"},
+		{[]string{"--schema", "app.db", "--no-counts"}, "--no-counts"},
 		{[]string{"pattern", "app.db", "--no-counts"}, "--no-counts"},
-		{[]string{"tables", "app.db", "--max-columns", "80"}, "--max-columns"},
-		{[]string{"schema", "app.db", "--all-tables"}, "--all-tables"},
-		{[]string{"quickstart", "--json"}, "--json"},
+		{[]string{"--tables", "app.db", "--max-columns", "80"}, "--max-columns"},
+		{[]string{"--schema", "app.db", "--all-tables"}, "--all-tables"},
 	} {
 		_, err := parseInvocation(bad.argv)
 		if err == nil {
@@ -146,14 +145,12 @@ func TestParseInvocationEmptyFTSQuery(t *testing.T) {
 	}
 }
 
-func TestParseInvocationQuickstartRejectsArgs(t *testing.T) {
-	// quickstart takes no database and no extra positionals.
-	for _, bad := range [][]string{
-		{"quickstart", "extra"},
-		{"quickstart", "events.db"},
-	} {
-		if _, err := parseInvocation(bad); err == nil {
-			t.Errorf("parseInvocation(%v): want error, got nil", bad)
-		}
+func TestParseInvocationRejectsMultipleModes(t *testing.T) {
+	_, err := parseInvocation([]string{"--tables", "--schema", "app.db"})
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "--tables") || !strings.Contains(err.Error(), "--schema") {
+		t.Errorf("error %q should name both mode flags", err)
 	}
 }

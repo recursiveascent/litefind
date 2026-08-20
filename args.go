@@ -89,9 +89,11 @@ var flagCanonical = map[string]string{
 	"all-tables":  "all-tables",
 	"immutable":   "immutable",
 	"no-counts":   "no-counts",
+	"tables":      "tables",
+	"schema":      "schema",
 }
 
-// allowedFlags defines which canonical flags are allowed for each subcommand.
+// allowedFlags defines which canonical flags are allowed for each mode.
 var allowedFlags = map[string]map[string]bool{
 	"search": {
 		"t": true, "T": true, "c": true, "F": true, "i": true, "S": true,
@@ -100,19 +102,16 @@ var allowedFlags = map[string]map[string]bool{
 		"immutable": true, "fts": true,
 	},
 	"tables": {
-		"json": true, "no-counts": true, "all-tables": true, "immutable": true,
+		"tables": true, "json": true, "no-counts": true, "all-tables": true, "immutable": true,
 	},
 	"schema": {
-		"json": true, "immutable": true,
+		"schema": true, "json": true, "immutable": true,
 	},
-	"quickstart": {},
 }
 
-// parseInvocation parses flags first, then reads the subcommand as the
-// first positional — so flags may precede it ("litefind --json tables
-// db"). A search pattern that literally equals "tables", "schema", or
-// "quickstart" needs disambiguation (e.g. the regex "[t]ables"); --help
-// documents this.
+// parseInvocation parses flags first, selects introspection when --tables or
+// --schema was supplied, and otherwise treats the positionals as a search
+// pattern and database path.
 func parseInvocation(argv []string) (*invocation, error) {
 	inv := &invocation{sub: "search"}
 
@@ -146,6 +145,8 @@ func parseInvocation(argv []string) (*invocation, error) {
 	allTables := fs.Bool("all-tables", false, "")
 	immutable := fs.Bool("immutable", false, "")
 	noCounts := fs.Bool("no-counts", false, "")
+	fs.Bool("tables", false, "")
+	fs.Bool("schema", false, "")
 
 	if err := fs.Parse(reorderArgs(argv, valueFlags)); err != nil {
 		return nil, err
@@ -157,6 +158,10 @@ func parseInvocation(argv []string) (*invocation, error) {
 		canonical := flagCanonical[f.Name]
 		suppliedFlags[canonical] = true
 	})
+
+	if suppliedFlags["tables"] && suppliedFlags["schema"] {
+		return nil, fmt.Errorf("--tables and --schema cannot be combined")
+	}
 
 	// Check if --fts was supplied and validate it's not empty.
 	if suppliedFlags["fts"] && *fts == "" {
@@ -173,9 +178,11 @@ func parseInvocation(argv []string) (*invocation, error) {
 	}
 
 	pos := fs.Args()
-	if len(pos) > 0 && (pos[0] == "tables" || pos[0] == "schema" || pos[0] == "quickstart") {
-		inv.sub = pos[0]
-		pos = pos[1:]
+	switch {
+	case suppliedFlags["tables"]:
+		inv.sub = "tables"
+	case suppliedFlags["schema"]:
+		inv.sub = "schema"
 	}
 	switch inv.sub {
 	case "search":
@@ -194,48 +201,39 @@ func parseInvocation(argv []string) (*invocation, error) {
 			inv.pattern, inv.dbPath = pos[0], pos[1]
 		}
 		// Validate search flags.
-		if err := validateFlagsForSubcommand(suppliedFlags, "search", inv.opts.fts != ""); err != nil {
+		if err := validateFlagsForMode(suppliedFlags, "search", inv.opts.fts != ""); err != nil {
 			return nil, err
 		}
 	case "tables":
 		if len(pos) != 1 {
-			return nil, fmt.Errorf("usage: litefind tables <db>")
+			return nil, fmt.Errorf("usage: litefind --tables <db>")
 		}
 		inv.dbPath = pos[0]
-		// Validate tables flags.
-		if err := validateFlagsForSubcommand(suppliedFlags, "tables", false); err != nil {
+		if err := validateFlagsForMode(suppliedFlags, "tables", false); err != nil {
 			return nil, err
 		}
 	case "schema":
 		if len(pos) < 1 || len(pos) > 2 {
-			return nil, fmt.Errorf("usage: litefind schema <db> [table-glob]")
+			return nil, fmt.Errorf("usage: litefind --schema <db> [table-glob]")
 		}
 		inv.dbPath = pos[0]
 		if len(pos) == 2 {
 			inv.glob = pos[1]
 		}
-		// Validate schema flags.
-		if err := validateFlagsForSubcommand(suppliedFlags, "schema", false); err != nil {
-			return nil, err
-		}
-	case "quickstart":
-		if len(pos) > 0 {
-			return nil, fmt.Errorf("usage: litefind quickstart")
-		}
-		if err := validateFlagsForSubcommand(suppliedFlags, "quickstart", false); err != nil {
+		if err := validateFlagsForMode(suppliedFlags, "schema", false); err != nil {
 			return nil, err
 		}
 	}
 	return inv, nil
 }
 
-// validateFlagsForSubcommand checks that supplied flags are allowed for the
-// given subcommand. For search with --fts, it allows a different set to
-// exclude regex-only flags (checkFTSFlagCompat handles detailed validation).
-func validateFlagsForSubcommand(supplied map[string]bool, sub string, isFTS bool) error {
-	allowed := allowedFlags[sub]
+// validateFlagsForMode checks that supplied flags are allowed for the
+// given mode. For search with --fts, it allows a different set to exclude
+// regex-only flags (checkFTSFlagCompat handles detailed validation).
+func validateFlagsForMode(supplied map[string]bool, mode string, isFTS bool) error {
+	allowed := allowedFlags[mode]
 	// For search with --fts, remove regex-only flags from the allowed set.
-	if sub == "search" && isFTS {
+	if mode == "search" && isFTS {
 		// Allowed flags for search+fts: fts, t, T, l, m, count, row, json, stats, max-columns, immutable.
 		allowed = map[string]bool{
 			"fts": true, "t": true, "T": true, "l": true, "m": true,
@@ -246,7 +244,7 @@ func validateFlagsForSubcommand(supplied map[string]bool, sub string, isFTS bool
 
 	for flag := range supplied {
 		if !allowed[flag] {
-			return fmt.Errorf("flag %s is not valid for subcommand %q", formatFlagName(flag), sub)
+			return fmt.Errorf("flag %s is not valid for mode %q", formatFlagName(flag), mode)
 		}
 	}
 	return nil

@@ -497,7 +497,7 @@ func startScans(scoped []tableInfo, slots chan struct{}, scan func(tableInfo, fu
 	return streams
 }
 
-// scopeTables applies the search subcommand's table scope (spec "Search
+// scopeTables applies the search mode's table scope (spec "Search
 // semantics"): kind "table" non-shadow plus fts5 non-shadow by default;
 // --all-tables widens that to every non-view kind, shadow included. -t
 // keeps a table matching any include glob; -T then drops any table
@@ -563,7 +563,7 @@ func validateGlob(g string) error {
 
 // validateGlobs checks every -t, -T, and -c glob (the COLGLOB half of a
 // -c value, not its optional TABLE qualifier) for syntax errors, via the
-// same path.Match probe the schema subcommand uses.
+// same path.Match probe the schema mode uses.
 func validateGlobs(o searchOpts) error {
 	for _, g := range o.tables {
 		if err := validateGlob(g); err != nil {
@@ -642,7 +642,7 @@ func searchColorEnabled(stdout io.Writer, jsonOut bool) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// cmdSearch implements the search subcommand: scope resolution, at most
+// cmdSearch implements the search mode: scope resolution, at most
 // GOMAXPROCS tables scanned concurrently, and deterministic emission
 // (catalog order, not completion order) in one of four modes. See
 // scopeTables and resolveColsForTable for scoping; tableResult.warned

@@ -7,7 +7,7 @@ import (
 )
 
 func TestTablesText(t *testing.T) {
-	out, _, code := runCmd(t, "tables", fixturePath(t))
+	out, _, code := runCmd(t, "--tables", fixturePath(t))
 	if code != exitMatch {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -23,18 +23,18 @@ func TestTablesText(t *testing.T) {
 }
 
 func TestTablesAllAndNoCounts(t *testing.T) {
-	out, _, _ := runCmd(t, "tables", fixturePath(t), "--all-tables")
+	out, _, _ := runCmd(t, "--tables", fixturePath(t), "--all-tables")
 	if !strings.Contains(out, "notes_data") {
 		t.Errorf("--all-tables must include shadow tables:\n%s", out)
 	}
-	out, _, _ = runCmd(t, "tables", fixturePath(t), "--no-counts")
+	out, _, _ = runCmd(t, "--tables", fixturePath(t), "--no-counts")
 	if strings.Contains(out, "\t4\t") {
 		t.Errorf("--no-counts must omit row counts:\n%s", out)
 	}
 }
 
 func TestTablesJSON(t *testing.T) {
-	out, _, _ := runCmd(t, "tables", fixturePath(t), "--json")
+	out, _, _ := runCmd(t, "--tables", fixturePath(t), "--json")
 	// Decode and verify every key is present and lowercase.
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		var obj map[string]any
@@ -54,7 +54,7 @@ func TestTablesJSON(t *testing.T) {
 
 func TestTablesErrorRouting(t *testing.T) {
 	// Test that openRO errors route to stderr and don't corrupt stdout.
-	stdout, stderr, code := runCmd(t, "tables", "/nonexistent/db/path.db")
+	stdout, stderr, code := runCmd(t, "--tables", "/nonexistent/db/path.db")
 	if code != exitError {
 		t.Fatalf("exit = %d, want %d", code, exitError)
 	}
@@ -90,7 +90,7 @@ func TestTablesCmdTablesErrorRouting(t *testing.T) {
 }
 
 func TestSchemaText(t *testing.T) {
-	out, _, code := runCmd(t, "schema", fixturePath(t), "events")
+	out, _, code := runCmd(t, "--schema", fixturePath(t), "events")
 	if code != exitMatch {
 		t.Fatalf("exit = %d", code)
 	}
@@ -103,21 +103,21 @@ func TestSchemaText(t *testing.T) {
 }
 
 func TestSchemaGlobNoMatch(t *testing.T) {
-	_, _, code := runCmd(t, "schema", fixturePath(t), "zzz*")
+	_, _, code := runCmd(t, "--schema", fixturePath(t), "zzz*")
 	if code != exitNoMatch {
 		t.Fatalf("exit = %d, want 1", code)
 	}
 }
 
 func TestSchemaJSON(t *testing.T) {
-	out, _, _ := runCmd(t, "schema", fixturePath(t), "config", "--json")
+	out, _, _ := runCmd(t, "--schema", fixturePath(t), "config", "--json")
 	if !strings.Contains(out, `"name":"config"`) || !strings.Contains(out, `"pk":1`) {
 		t.Errorf("json schema output:\n%s", out)
 	}
 }
 
 func TestSchemaTextDefaults(t *testing.T) {
-	out, _, code := runCmd(t, "schema", fixturePath(t), "defaults_t")
+	out, _, code := runCmd(t, "--schema", fixturePath(t), "defaults_t")
 	if code != exitMatch {
 		t.Fatalf("exit = %d", code)
 	}
@@ -127,7 +127,7 @@ func TestSchemaTextDefaults(t *testing.T) {
 }
 
 func TestSchemaTextExpressionIndex(t *testing.T) {
-	out, _, code := runCmd(t, "schema", fixturePath(t), "events")
+	out, _, code := runCmd(t, "--schema", fixturePath(t), "events")
 	if code != exitMatch {
 		t.Fatalf("exit = %d", code)
 	}
@@ -141,7 +141,7 @@ func TestSchemaTextExpressionIndex(t *testing.T) {
 }
 
 func TestSchemaForeignKeyImplicitPK(t *testing.T) {
-	out, _, code := runCmd(t, "schema", fixturePath(t), "fk_source", "--json")
+	out, _, code := runCmd(t, "--schema", fixturePath(t), "fk_source", "--json")
 	if code != exitMatch {
 		t.Fatalf("exit = %d", code)
 	}
@@ -152,7 +152,7 @@ func TestSchemaForeignKeyImplicitPK(t *testing.T) {
 }
 
 func TestSchemaMalformedGlob(t *testing.T) {
-	_, stderr, code := runCmd(t, "schema", fixturePath(t), "[unclosed")
+	_, stderr, code := runCmd(t, "--schema", fixturePath(t), "[unclosed")
 	if code != exitError {
 		t.Fatalf("exit = %d, want %d", code, exitError)
 	}
@@ -167,7 +167,7 @@ func TestSchemaMalformedGlob(t *testing.T) {
 // output must carry that statement for every user-created index, not
 // just the expression indexes that would otherwise print "<expr>".
 func TestSchemaPartialIndexDDL(t *testing.T) {
-	out, _, code := runCmd(t, "schema", fixturePath(t), "metrics")
+	out, _, code := runCmd(t, "--schema", fixturePath(t), "metrics")
 	if code != exitMatch {
 		t.Fatalf("exit = %d", code)
 	}
@@ -180,7 +180,7 @@ func TestSchemaPartialIndexDDL(t *testing.T) {
 		}
 	}
 
-	out, _, code = runCmd(t, "schema", fixturePath(t), "metrics", "--json")
+	out, _, code = runCmd(t, "--schema", fixturePath(t), "metrics", "--json")
 	if code != exitMatch {
 		t.Fatalf("json exit = %d", code)
 	}
@@ -224,7 +224,7 @@ func TestBrokenViewDoesNotBlockOtherTables(t *testing.T) {
 		t.Errorf("keep cols = %+v, want 2 (unaffected by the broken view)", keep.cols)
 	}
 
-	out, stderr, code := runCmd(t, "tables", path)
+	out, stderr, code := runCmd(t, "--tables", path)
 	if code != exitMatch {
 		t.Fatalf("tables exit = %d, want %d (stderr: %s)", code, exitMatch, stderr)
 	}
@@ -232,7 +232,7 @@ func TestBrokenViewDoesNotBlockOtherTables(t *testing.T) {
 		t.Errorf("tables output:\n%s", out)
 	}
 
-	out, stderr, code = runCmd(t, "schema", path)
+	out, stderr, code = runCmd(t, "--schema", path)
 	if code != exitMatch {
 		t.Fatalf("schema exit = %d, want %d (stderr: %s)", code, exitMatch, stderr)
 	}
@@ -262,11 +262,11 @@ func TestBrokenViewDoesNotBlockOtherTables(t *testing.T) {
 func TestIntrospectStdoutWriteErrorExitsError(t *testing.T) {
 	path := fixturePath(t)
 	for _, argv := range [][]string{
-		{"tables", path},
-		{"tables", path, "--json"},
-		{"schema", path},
-		{"schema", path, "--json"},
-		{"schema", path, "events"},
+		{"--tables", path},
+		{"--tables", path, "--json"},
+		{"--schema", path},
+		{"--schema", path, "--json"},
+		{"--schema", path, "events"},
 	} {
 		var stderr strings.Builder
 		if code := run(argv, failWriter{}, &stderr); code != exitError {

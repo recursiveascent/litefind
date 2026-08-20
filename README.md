@@ -18,13 +18,15 @@ make build
 
 ## Usage
 
-```
-litefind PATTERN <db> [flags]               search (regex by default; -F for literal)
-litefind tables <db> [flags]                list tables: name, kind, row count, column count
-litefind schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
+```text
+litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
+litefind --tables <db> [flags]                list tables: name, kind, row count, column count
+litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
 
-Flags may appear anywhere on the command line, rg-style:
+Flags may appear anywhere on the command line, rg-style. Introspection is
+selected only by `--tables` or `--schema`; without either option, the first
+positional string is always the search pattern.
 
 ```
 litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
@@ -37,8 +39,8 @@ litefind timeout events.db                         regex search, all tables
 litefind -F 'error: 42' events.db                  literal string match
 litefind -t events -c message timeout events.db    scope to a table + column
 litefind --fts 'NEAR(timeout retry, 3)' events.db  FTS5 query syntax
-litefind tables events.db                          table inventory
-litefind schema events.db 'user*'                  DDL for tables matching a glob
+litefind --tables events.db                        table inventory
+litefind --schema events.db 'user*'                DDL for tables matching a glob
 ```
 
 ### Search flags
@@ -93,11 +95,11 @@ tokenizer; scope columns with FTS5's native syntax instead, e.g.
 
 ### Introspection
 
-- `litefind tables <db>` — one line per table: name, kind (table/view/fts5),
+- `litefind --tables <db>` — one line per table: name, kind (table/view/fts5),
   row count, column count. Use `--no-counts` to skip the `COUNT(*)` row
   counts on huge databases; views always show `-` since counting a view
   would execute it.
-- `litefind schema <db> [table-glob]` — `CREATE` DDL plus structured column
+- `litefind --schema <db> [table-glob]` — `CREATE` DDL plus structured column
   detail (type, notnull, default, pk), indexes, and foreign keys.
 
 Both take `--json`.

@@ -48,8 +48,8 @@ func TestGolden(t *testing.T) {
 		{"search_basic.txt", []string{"timeout", path}, exitMatch, shadnullWarning},
 		{"search_json.txt", []string{"timeout", path, "--json", "-t", "events"}, exitMatch, ""},
 		{"search_count.txt", []string{"timeout", path, "--count"}, exitMatch, shadnullWarning},
-		{"tables.txt", []string{"tables", path}, exitMatch, ""},
-		{"schema_events.txt", []string{"schema", path, "events"}, exitMatch, ""},
+		{"tables.txt", []string{"--tables", path}, exitMatch, ""},
+		{"schema_events.txt", []string{"--schema", path, "events"}, exitMatch, ""},
 		{"fts_docs.txt", []string{"--fts", "timeout", path, "-t", "docs"}, exitMatch, ""},
 	}
 	for _, c := range cases {

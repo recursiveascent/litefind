@@ -19,10 +19,9 @@ const (
 const usage = `litefind — ripgrep for SQLite databases (read-only)
 
 usage:
-  litefind PATTERN <db> [flags]               search (regex by default; -F for literal)
-  litefind tables <db> [flags]                list tables: name, kind, row count, column count
-  litefind schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
-  litefind quickstart                         print a short getting-started guide
+  litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
+  litefind --tables <db> [flags]                list tables: name, kind, row count, column count
+  litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 
 Flags may appear anywhere on the command line, rg-style:
   litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
@@ -32,8 +31,8 @@ examples:
   litefind -F 'error: 42' events.db                    literal string match
   litefind -t events -c message timeout events.db      scope to a table + column
   litefind --fts 'NEAR(timeout retry, 3)' events.db    FTS5 query syntax
-  litefind tables events.db                            table inventory
-  litefind schema events.db 'user*'                    DDL for tables matching a glob
+  litefind --tables events.db                          table inventory
+  litefind --schema events.db 'user*'                  DDL for tables matching a glob
 
 search flags:
   -t, --table GLOB           include only matching tables (repeatable)
@@ -60,11 +59,13 @@ search flags:
                               AND/OR/NOT, column filters); replaces PATTERN
                               — see fts below
 
-tables/schema flags:
+introspection flags:
+  --tables                   list tables
+  --schema                   show schema; optional table glob follows <db>
   --json                     JSON output instead of text
-  --no-counts                (tables only) skip COUNT(*) row counts
-  --all-tables               (tables only) include shadow tables
-  --immutable                (all subcommands) see immutable/wal below
+  --no-counts                (--tables only) skip COUNT(*) row counts
+  --all-tables               (--tables only) include shadow tables
+  --immutable                (all modes) see immutable/wal below
 
 regex engine:
   Default pattern syntax is Go's RE2 (regexp/syntax), not PCRE — near-parity
@@ -72,13 +73,6 @@ regex engine:
   finite-automata engines), so most rg habits transfer directly. Known
   divergence: Go's \b is ASCII-only, where Rust's (and rg's) \b is
   Unicode-aware. Reference: https://pkg.go.dev/regexp/syntax
-
-disambiguating "tables"/"schema"/"quickstart" as a pattern:
-  Flags are parsed first; the first remaining positional is read as the
-  subcommand only when it is literally "tables", "schema", or "quickstart".
-  A PATTERN that happens to be one of those words needs a regex trick to
-  force search mode:
-    litefind '[t]ables' mydb.sqlite
 
 fts: searching existing FTS5 indexes:
   --fts queries FTS5 indexes that already exist in the database; it never
@@ -142,40 +136,6 @@ exit codes (ripgrep's contract):
 Run 'litefind -h' to see this text again.
 `
 
-const quickstart = `litefind quickstart — a 60-second tour
-
-litefind searches SQLite databases the way ripgrep searches files. Three modes:
-
-  litefind PATTERN <db>               search every text column for PATTERN (regex)
-  litefind tables <db>                list tables: name, kind, row count, columns
-  litefind schema <db> [table-glob]   show DDL, columns, indexes, foreign keys
-
-common flags (search; flags may go anywhere on the line):
-  -t, --table GLOB      search only matching tables (repeatable)
-  -c, --column GLOB     search only matching columns (repeatable)
-  -F, --fixed-strings   treat PATTERN as a literal string, not a regex
-  -i, --ignore-case     match case-insensitively
-  --json                JSONL output, one object per match
-  --fts QUERY           FTS5 query (phrase "a b", NEAR(a b, N), AND/OR/NOT)
-
-first steps:
-  litefind tables events.db
-      See what's in there — table names, row counts, column counts.
-
-  litefind timeout events.db
-      Regex search every text column for "timeout".
-
-  litefind -t events -c message -i timeout events.db
-      Scope to one table and column, case-insensitive.
-
-  litefind --fts 'NEAR(error retry, 5)' events.db
-      Full-text search over an existing FTS5 index.
-
-Exit codes match ripgrep: 0 = match found, 1 = no match, 2 = error.
-
-Run 'litefind -h' for the complete reference.
-`
-
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -189,12 +149,6 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		}
 		_, _ = fmt.Fprintf(stderr, "%v\n%s", err, usage)
 		return exitError
-	}
-
-	// Handle quickstart subcommand: print guide, no db needed.
-	if inv.sub == "quickstart" {
-		_, _ = fmt.Fprint(stdout, quickstart)
-		return exitMatch
 	}
 
 	db, err := openRO(inv.dbPath, inv.opts.immutable)

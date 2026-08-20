@@ -8,7 +8,7 @@ ground truth.
 
 ## Scope and contract
 
-Subcommands:
+Invocation modes:
 
 - **search** (default) — regex, fixed-string, or FTS5 search. Regex/fixed
   search scans the textual representation (`CAST(c AS TEXT)`) of every
@@ -18,25 +18,23 @@ Subcommands:
   Both support table globs (`-t`/`-T`); column globs (`-c`) apply only to
   regex/fixed search — FTS5 rejects `-c` and scopes columns with its own
   query syntax (e.g. `--fts '{col}: query'`).
-- **tables** — table inventory: name, kind, row count, column count.
-- **schema** — DDL plus structured column, index, and foreign-key detail.
-- **quickstart** — prints a getting-started guide; takes no database.
+- **`--tables`** — table inventory: name, kind, row count, column count.
+- **`--schema`** — DDL plus structured column, index, and foreign-key detail.
 
 The database is opened **read-only** (`mode=ro`). litefind never writes to a
 database, never creates an FTS5 index, and never assumes immutability (the
 `--immutable` flag is an explicit, caller-asserted opt-in). Exit codes mirror
-ripgrep for **search** and **schema**: 0 = match found, 1 = no match,
-2 = usage or runtime error. **tables** returns 0 on success and 2 on error.
-**quickstart** (and `--help`) print to stdout and return 0 on a valid
-invocation; their `fmt.Fprint` result is not checked, so a stdout write
-failure is not propagated as an error (unlike search, tables, and schema,
-which check every write). `-h`/`--help` short-circuits all remaining
-parsing and semantic validation (it prints usage and returns 0) once
-reached; the only thing that takes precedence is a parsing error encountered
-*before* it, such as an unknown flag. Extra positional args or unsupported
-*known* flags that appear before help are not subsequently rejected — help
-wins. Absent help, other invalid invocations fail during parsing or
-per-subcommand validation and return 2 before the write.
+ripgrep for **search** and **`--schema`**: 0 = match found, 1 = no match,
+2 = usage or runtime error. **`--tables`** returns 0 on success and 2 on error.
+`--help` prints to stdout and returns 0 on a valid invocation; its `fmt.Fprint`
+result is not checked, so a stdout write failure is not propagated as an error
+(unlike search, tables, and schema, which check every write). `-h`/`--help`
+short-circuits all remaining parsing and semantic validation (it prints usage
+and returns 0) once reached; the only thing that takes precedence is a parsing
+error encountered *before* it, such as an unknown flag. Extra positional args
+or unsupported *known* flags that appear before help are not subsequently
+rejected — help wins. Absent help, other invalid invocations fail during
+parsing or per-mode validation and return 2 before the write.
 
 ## Package layout
 
@@ -47,44 +45,40 @@ otherwise.
 
 | File       | Responsibility                                                     |
 |------------|-------------------------------------------------------------------|
-| `main.go`  | Entry point, `run` dispatcher, usage/quickstart text.           |
-| `args.go`  | Argument reordering, flag parsing, subcommand and flag validation. |
+| `main.go`  | Entry point, `run` dispatcher, usage text.                         |
+| `args.go`  | Argument reordering, flag parsing, mode and flag validation.       |
 | `db.go`    | Read-only open + diagnostics, catalog, DDL tokenizer, identity resolution. |
 | `search.go`| Regex/fixed search: matching, batching, streaming, scoping, command. |
 | `fts.go`   | FTS5 search: target resolution, query, setup-SQL generation, command. |
-| `introspect.go` | `tables` and `schema` subcommands.                          |
-| `output.go`| Text/JSON rendering, truncation, ANSI highlighting.             |
+| `introspect.go` | `--tables` and `--schema` modes.                              |
+| `output.go`| Text/JSON rendering, truncation, ANSI highlighting.                 |
 
 ## Control flow
 
-`run` (main.go) parses the invocation, dispatches on the subcommand, and for
-the database-backed subcommands (`search`, `tables`, `schema`) opens the
-database read-only and calls the command function. `quickstart` is handled
-directly in `run` — it prints the guide and needs no database, so no file is
-touched. The command signatures differ: `cmdSearch`/`cmdSearchFTS` take the
-full `*invocation`; `cmdTables` takes just `searchOpts`; `cmdSchema` takes the
-glob and the JSON flag. All receive the `*database` and `stdout`/`stderr`
-writers and return an exit code. Opening the database is the first thing each
-database-backed subcommand does after parsing, so parse errors never touch the
-file.
+`run` (main.go) parses the invocation, opens the database read-only, and
+dispatches to search, tables, or schema according to the parsed mode. The
+command signatures differ: `cmdSearch`/`cmdSearchFTS` take the full
+`*invocation`; `cmdTables` takes just `searchOpts`; `cmdSchema` takes the glob
+and the JSON flag. All receive the `*database` and `stdout`/`stderr` writers
+and return an exit code. Opening the database happens after parsing, so parse
+errors never touch the file.
 
 ### Argument handling (args.go)
 
-litefind accepts flags in any position, rg-style (`--json tables db` ==
-`tables db --json`). `reorderArgs` walks the argv once, separating flags from
+litefind accepts flags in any position, rg-style (`--json timeout db` ==
+`timeout db --json`). `reorderArgs` walks the argv once, separating flags from
 positionals while keeping each value-taking flag with its argument. When the
 caller supplied an explicit `--`, it is moved ahead of the positionals so the
 stdlib `flag` parser treats everything after it as positional; `reorderArgs`
 only relocates a supplied `--`, it never inserts one, so a leading-dash
 pattern without an explicit `--` is still parsed as a flag (use `--` to pass
-such patterns). After parsing, `parseInvocation` reads the
-first positional as the subcommand only when it literally equals `tables`,
-`schema`, or `quickstart`; otherwise the default `search` subcommand takes
-over (a search pattern that collides with one of those names needs a regex
-trick like `[t]ables` to disambiguate).
+such patterns). After parsing, `parseInvocation` selects tables or schema only
+when the corresponding `--tables` or `--schema` flag was supplied; supplying
+both is a usage error. Otherwise every positional string is handled by search,
+including the literal patterns `tables`, `schema`, and `quickstart`.
 
 Flag validation is layered: `checkFTSFlagCompat` rejects regex-oriented flags
-combined with `--fts`; `validateFlagsForSubcommand` enforces a per-subcommand
+combined with `--fts`; `validateFlagsForMode` enforces a per-mode
 allowlist, using a different (narrower) allowlist for search+FTS. The
 canonical-flag map (`flagCanonical`) normalizes short/long spellings so error
 messages name a flag the user can actually type.
@@ -284,5 +278,5 @@ truncation/highlighting pipeline as a regex match value.
    same `-t`/`-T`/`-i`/`-F`/`-w` vocabulary remapped to tables and columns.
 6. **Diagnosable errors.** Open failures map to one-line messages with
    remedies; write failures propagate rather than truncating silently in the
-   search, tables, and schema commands (`quickstart`/`--help` are the
-   documented exception — their stdout write is unchecked).
+   search, tables, and schema modes (`--help` is the documented exception —
+   its stdout write is unchecked).

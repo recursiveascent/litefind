@@ -39,21 +39,25 @@ func TestRunHelpPrintsFullHelp(t *testing.T) {
 	// The standalone-FTS condition is about the rowid being unreachable,
 	// which an INTEGER PRIMARY KEY DESC column does not fix — help must
 	// not promise otherwise by saying merely "no INTEGER PRIMARY KEY".
-	for _, want := range []string{`\b`, "--count", "--fts", "no rowid-aliasing INTEGER PRIMARY KEY"} {
+	for _, want := range []string{`\b`, "--count", "--fts", "--tables", "--schema", "no rowid-aliasing INTEGER PRIMARY KEY"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q; stdout = %q", want, stdout)
 		}
 	}
+	if strings.Contains(stdout, "quickstart") {
+		t.Errorf("stdout still documents removed quickstart command: %q", stdout)
+	}
 }
 
-func TestRunQuickstartPrintsGuide(t *testing.T) {
-	stdout, stderr, code := runCmd(t, "quickstart")
-	if code != exitMatch {
-		t.Fatalf("exit = %d, want %d; stderr = %q", code, exitMatch, stderr)
-	}
-	for _, want := range []string{"litefind quickstart", "tables", "schema", "--fts", "first steps"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("stdout missing %q; stdout = %q", want, stdout)
+func TestRunFormerCommandNamesAreSearchPatterns(t *testing.T) {
+	path := fixturePath(t)
+	for _, pattern := range []string{"tables", "schema", "quickstart"} {
+		_, stderr, code := runCmd(t, pattern, path)
+		if code != exitNoMatch {
+			t.Errorf("pattern %q exit = %d, want %d; stderr = %q", pattern, code, exitNoMatch, stderr)
+		}
+		if strings.Contains(stderr, "usage:") {
+			t.Errorf("pattern %q was treated as a command; stderr = %q", pattern, stderr)
 		}
 	}
 }

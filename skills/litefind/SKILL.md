@@ -13,15 +13,15 @@ allowed-tools: Bash(litefind:*)
 
 `litefind` is a read-only search and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs. The database is opened read-only (`mode=ro`); there is no write path.
 
-Three subcommands:
+Three modes:
 
-```
-litefind PATTERN <db> [flags]               search (regex by default; -F for literal)
-litefind tables <db> [flags]                list tables: name, kind, row count, column count
-litefind schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
+```text
+litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
+litefind --tables <db> [flags]                list tables: name, kind, row count, column count
+litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
 
-Flags may appear anywhere on the command line, rg-style: `litefind --json timeout db.sqlite` == `litefind timeout db.sqlite --json`.
+Flags may appear anywhere on the command line, rg-style: `litefind --json timeout db.sqlite` == `litefind timeout db.sqlite --json`. Introspection is selected only by `--tables` or `--schema`; without either option, the first positional string is always the search pattern.
 
 ## Install
 
@@ -42,8 +42,8 @@ Do NOT use for writing data, running arbitrary SQL, or joins/aggregations/projec
 
 In an unfamiliar database, orient before searching:
 
-1. `litefind tables <db>` — inventory: names, kinds, row/column counts.
-2. `litefind schema <db> [table-glob]` — DDL and column detail for the tables you care about.
+1. `litefind --tables <db>` — inventory: names, kinds, row/column counts.
+2. `litefind --schema <db> [table-glob]` — DDL and column detail for the tables you care about.
 3. `litefind <pattern> <db> [flags]` — now you know which tables/columns to scope.
 
 Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing table names.
@@ -72,7 +72,7 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `--fts QUERY` | FTS5 match syntax; replaces PATTERN |
 | `--immutable` | treat the DB as genuinely static (read-only media, network mounts); unsafe if it could be written concurrently |
 
-`tables` and `schema` do not accept the search flags above. `tables` accepts `--json`, `--no-counts`, `--all-tables`, `--immutable`; `schema` accepts `--json`, `--immutable`.
+`--tables` and `--schema` do not accept the search flags above. `--tables` accepts `--json`, `--no-counts`, `--all-tables`, `--immutable`; `--schema` accepts `--json`, `--immutable`.
 
 Run `litefind --help` for the exhaustive, always-current flag reference.
 
@@ -90,8 +90,8 @@ Exit codes (ripgrep's contract): `0` match found, `1` no match, `2` usage/runtim
 
 ```bash
 # Orient
-litefind tables events.db                         # table inventory
-litefind schema events.db 'user*'                 # DDL for tables matching a glob
+litefind --tables events.db                         # table inventory
+litefind --schema events.db 'user*'                 # DDL for tables matching a glob
 
 # Regex search (default)
 litefind timeout events.db                        # all tables, all columns
@@ -128,10 +128,10 @@ litefind --fts '{body}: timeout' events.db        # FTS5 column-filter syntax
 
 **Read-only, always.** Databases open with `mode=ro`; there is no write path. A live WAL database needs readable `-wal`/`-shm` sidecars, or a directory writable enough for SQLite to create them — otherwise litefind reports the specific condition and remedy. `--immutable` is an explicit opt-in for genuinely static files (read-only media, network mounts); it is unsafe on a database that could be written concurrently. litefind never assumes immutability on its own.
 
-**Disambiguating "tables"/"schema" as a pattern.** The first remaining positional is read as a subcommand only when it is literally `tables` or `schema`. A search PATTERN that happens to be one of those words needs a regex trick to force search mode: `litefind '[t]ables' mydb.sqlite`.
+**Command-like words are ordinary patterns.** Search for `tables`, `schema`, or any other word directly: `litefind tables mydb.sqlite`. Only the `--tables` and `--schema` options select introspection.
 
 **Regex engine is Go RE2, not PCRE.** Near-parity with ripgrep's Rust regex engine — both are lookaround-free, linear-time finite-automata engines, so most rg habits transfer. Known divergence: Go's `\b` is ASCII-only, where Rust's (and rg's) is Unicode-aware. Reference: https://pkg.go.dev/regexp/syntax
 
-**Views are not searchable.** They have no rowid, so the identity and ordering contracts can't hold. Views still appear in `litefind tables` and `litefind schema` output.
+**Views are not searchable.** They have no rowid, so the identity and ordering contracts can't hold. Views still appear in `litefind --tables` and `litefind --schema` output.
 
 **BLOBs and NULLs never match.** Non-BLOB values are matched against SQLite's own text rendition (`CAST(col AS TEXT)`), so numeric formatting is exactly what `sqlite3` would print (e.g. REAL `1.0` renders `'1.0'`). NULLs are excluded; BLOBs are skipped entirely.
