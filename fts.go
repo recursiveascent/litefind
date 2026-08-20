@@ -497,19 +497,19 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	// table, work a malformed glob — a pure usage error — should never
 	// pay for.
 	if err := validateGlobs(o); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
 	cat, err := db.catalog()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
 	targets, err := resolveFTS(cat, o)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
@@ -525,7 +525,7 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	for _, tgt := range targets {
 		matches, err := searchFTSTarget(db, tgt, o.fts, o.maxCount, o.row)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			_, _ = fmt.Fprintln(stderr, err)
 			return exitError
 		}
 		if len(matches) == 0 {
@@ -537,13 +537,13 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		switch {
 		case o.listTables, o.count:
 			if err := emitTableSummary(stdout, tgt.index, len(matches), o.listTables, o.count, o.jsonOut); err != nil {
-				fmt.Fprintln(stderr, err)
+				_, _ = fmt.Fprintln(stderr, err)
 				return exitError
 			}
 		default:
 			for _, m := range matches {
 				if err := p.printFTSMatch(m); err != nil {
-					fmt.Fprintln(stderr, err)
+					_, _ = fmt.Fprintln(stderr, err)
 					return exitError
 				}
 			}

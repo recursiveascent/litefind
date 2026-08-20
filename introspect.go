@@ -45,7 +45,7 @@ func (s *stickyWriter) failed(stderr io.Writer) bool {
 	if s.err == nil {
 		return false
 	}
-	fmt.Fprintf(stderr, "error writing output: %v\n", s.err)
+	_, _ = fmt.Fprintf(stderr, "error writing output: %v\n", s.err)
 	return true
 }
 
@@ -53,7 +53,7 @@ func cmdTables(db *database, opts searchOpts, stdout, stderr io.Writer) int {
 	// Get catalog
 	tables, err := db.catalog()
 	if err != nil {
-		fmt.Fprintf(stderr, "error reading catalog: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "error reading catalog: %v\n", err)
 		return exitError
 	}
 
@@ -72,7 +72,7 @@ func cmdTables(db *database, opts searchOpts, stdout, stderr io.Writer) int {
 			// Query count
 			count, err := countRows(db, t.name)
 			if err != nil {
-				fmt.Fprintf(stderr, "error counting rows: %v\n", err)
+				_, _ = fmt.Fprintf(stderr, "error counting rows: %v\n", err)
 				return exitError
 			}
 			rows = &count
@@ -89,17 +89,17 @@ func cmdTables(db *database, opts searchOpts, stdout, stderr io.Writer) int {
 			}
 			data, err := json.Marshal(obj)
 			if err != nil {
-				fmt.Fprintf(stderr, "error encoding JSON: %v\n", err)
+				_, _ = fmt.Fprintf(stderr, "error encoding JSON: %v\n", err)
 				return exitError
 			}
-			fmt.Fprintf(out, "%s\n", data)
+			_, _ = fmt.Fprintf(out, "%s\n", data)
 		} else {
 			// Text output
 			rowStr := "-"
 			if rows != nil {
 				rowStr = fmt.Sprintf("%d", *rows)
 			}
-			fmt.Fprintf(out, "%s\t%s\t%s\t%d\n", t.name, t.kind, rowStr, len(t.cols))
+			_, _ = fmt.Fprintf(out, "%s\t%s\t%s\t%d\n", t.name, t.kind, rowStr, len(t.cols))
 		}
 		if out.failed(stderr) {
 			return exitError
@@ -119,11 +119,11 @@ func countRows(db *database, tableName string) (int64, error) {
 
 // schemaColumn represents a column in JSON schema output.
 type schemaColumn struct {
-	Name    string      `json:"name"`
-	Type    string      `json:"type"`
-	NotNull bool        `json:"notnull"`
-	Default interface{} `json:"default"`
-	PK      int         `json:"pk"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	NotNull bool   `json:"notnull"`
+	Default any    `json:"default"`
+	PK      int    `json:"pk"`
 }
 
 // schemaIndex represents an index in JSON schema output. DDL carries the
@@ -141,9 +141,9 @@ type schemaIndex struct {
 
 // schemaFK represents a foreign key in JSON schema output.
 type schemaFK struct {
-	Table string      `json:"table"`
-	From  string      `json:"from"`
-	To    interface{} `json:"to"` // null if implicit PK reference
+	Table string `json:"table"`
+	From  string `json:"from"`
+	To    any    `json:"to"` // null if implicit PK reference
 }
 
 // schemaObject represents a table schema in JSON output.
@@ -160,7 +160,7 @@ func cmdSchema(db *database, glob string, jsonOut bool, stdout, stderr io.Writer
 	// Validate glob pattern upfront
 	if glob != "" {
 		if err := validateGlob(glob); err != nil {
-			fmt.Fprintln(stderr, err)
+			_, _ = fmt.Fprintln(stderr, err)
 			return exitError
 		}
 	}
@@ -168,7 +168,7 @@ func cmdSchema(db *database, glob string, jsonOut bool, stdout, stderr io.Writer
 	// Get catalog
 	tables, err := db.catalog()
 	if err != nil {
-		fmt.Fprintf(stderr, "error reading catalog: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "error reading catalog: %v\n", err)
 		return exitError
 	}
 
@@ -204,23 +204,23 @@ func cmdSchema(db *database, glob string, jsonOut bool, stdout, stderr io.Writer
 		// that view alone: its DDL is still printed, and every other
 		// matched object is unaffected.
 		if t.xinfoErr != nil {
-			fmt.Fprintf(stderr, "warning: cannot read columns of view %v\n", t.xinfoErr)
+			_, _ = fmt.Fprintf(stderr, "warning: cannot read columns of view %v\n", t.xinfoErr)
 		}
 		if jsonOut {
 			obj, err := buildSchemaObject(db, t)
 			if err != nil {
-				fmt.Fprintf(stderr, "error building schema for %s: %v\n", t.name, err)
+				_, _ = fmt.Fprintf(stderr, "error building schema for %s: %v\n", t.name, err)
 				return exitError
 			}
 			data, err := json.Marshal(obj)
 			if err != nil {
-				fmt.Fprintf(stderr, "error encoding JSON: %v\n", err)
+				_, _ = fmt.Fprintf(stderr, "error encoding JSON: %v\n", err)
 				return exitError
 			}
-			fmt.Fprintf(out, "%s\n", data)
+			_, _ = fmt.Fprintf(out, "%s\n", data)
 		} else {
 			if i > 0 {
-				fmt.Fprintf(out, "\n")
+				_, _ = fmt.Fprintf(out, "\n")
 			}
 			if err := outputSchemaText(out, db, t, stderr); err != nil {
 				return exitError
@@ -296,7 +296,7 @@ func buildSchemaObject(db *database, t tableInfo) (schemaObject, error) {
 
 	// Add columns
 	for _, c := range t.cols {
-		var defVal interface{}
+		var defVal any
 		if c.dflt.Valid {
 			defVal = c.dflt.String
 		}
@@ -405,7 +405,7 @@ func getForeignKeys(db *database, tableName string) ([]schemaFK, error) {
 			return nil, err
 		}
 		// Handle implicit PK reference (to is NULL)
-		var toVal interface{}
+		var toVal any
 		if to.Valid {
 			toVal = to.String
 		}
@@ -423,13 +423,13 @@ func getForeignKeys(db *database, tableName string) ([]schemaFK, error) {
 func outputSchemaText(stdout io.Writer, db *database, t tableInfo, stderr io.Writer) error {
 	d, err := fetchSchema(db, t.name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error getting schema for %s: %v\n", t.name, err)
+		_, _ = fmt.Fprintf(stderr, "error getting schema for %s: %v\n", t.name, err)
 		return err
 	}
 
 	// Output DDL
 	if d.ddl != "" {
-		fmt.Fprintf(stdout, "%s\n", d.ddl)
+		_, _ = fmt.Fprintf(stdout, "%s\n", d.ddl)
 	}
 
 	// Output columns
@@ -444,35 +444,35 @@ func outputSchemaText(stdout io.Writer, db *database, t tableInfo, stderr io.Wri
 		if c.pk > 0 {
 			colStr += " PK"
 		}
-		fmt.Fprintf(stdout, "%s\n", colStr)
+		_, _ = fmt.Fprintf(stdout, "%s\n", colStr)
 	}
 
 	// Output indexes
 	if len(d.indexes) > 0 {
-		fmt.Fprintf(stdout, "\nINDEXES:\n")
+		_, _ = fmt.Fprintf(stdout, "\nINDEXES:\n")
 		for _, idx := range d.indexes {
 			unique := ""
 			if idx.Unique {
 				unique = " UNIQUE"
 			}
-			fmt.Fprintf(stdout, "  %s%s: %s\n", idx.Name, unique, strings.Join(idx.Columns, ", "))
+			_, _ = fmt.Fprintf(stdout, "  %s%s: %s\n", idx.Name, unique, strings.Join(idx.Columns, ", "))
 			// The statement, where SQLite has one, is what carries a
 			// partial index's predicate, key direction, and collation.
 			if idx.DDL != "" {
-				fmt.Fprintf(stdout, "    DDL: %s\n", idx.DDL)
+				_, _ = fmt.Fprintf(stdout, "    DDL: %s\n", idx.DDL)
 			}
 		}
 	}
 
 	// Output foreign keys
 	if len(d.fks) > 0 {
-		fmt.Fprintf(stdout, "\nFOREIGN KEYS:\n")
+		_, _ = fmt.Fprintf(stdout, "\nFOREIGN KEYS:\n")
 		for _, fk := range d.fks {
 			toStr := "(pk)"
 			if fk.To != nil {
 				toStr = fmt.Sprintf("(%v)", fk.To)
 			}
-			fmt.Fprintf(stdout, "  %s -> %s%s\n", fk.From, fk.Table, toStr)
+			_, _ = fmt.Fprintf(stdout, "  %s -> %s%s\n", fk.From, fk.Table, toStr)
 		}
 	}
 

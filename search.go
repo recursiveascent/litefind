@@ -72,10 +72,7 @@ type colBatch []colInfo
 func batchColumns(cols []colInfo, size int) []colBatch {
 	var batches []colBatch
 	for i := 0; i < len(cols); i += size {
-		end := i + size
-		if end > len(cols) {
-			end = len(cols)
-		}
+		end := min(i+size, len(cols))
 		batches = append(batches, colBatch(cols[i:end]))
 	}
 	return batches
@@ -591,8 +588,8 @@ func validateGlobs(o searchOpts) error {
 // column glob: "events.msg*" -> ("events", "msg*"); a bare "msg*" ->
 // ("", "msg*").
 func splitColumnSpec(spec string) (table, colGlob string) {
-	if i := strings.IndexByte(spec, '.'); i >= 0 {
-		return spec[:i], spec[i+1:]
+	if before, after, ok := strings.Cut(spec, "."); ok {
+		return before, after
 	}
 	return "", spec
 }
@@ -689,7 +686,7 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 
 	re, err := buildMatcher(inv.pattern, o)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
@@ -697,13 +694,13 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	// issues identity-verification queries per table, work a malformed
 	// glob — a pure usage error — should never pay for.
 	if err := validateGlobs(o); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
 	cat, err := db.catalog()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 
@@ -764,7 +761,7 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 			tablesScanned++
 		}
 		if res.warned != "" {
-			fmt.Fprintf(stderr, "warning: skipping %s: no stable row identity (rowid aliases shadowed, primary key nullable or absent)\n", res.warned)
+			_, _ = fmt.Fprintf(stderr, "warning: skipping %s: no stable row identity (rowid aliases shadowed, primary key nullable or absent)\n", res.warned)
 			continue
 		}
 		if res.err != nil {
@@ -787,7 +784,7 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	}
 
 	if firstErr != nil {
-		fmt.Fprintln(stderr, firstErr)
+		_, _ = fmt.Fprintln(stderr, firstErr)
 		return exitError
 	}
 
@@ -833,14 +830,14 @@ func emitStats(w, stderr io.Writer, totalMatches, matchedTables, tablesScanned i
 				"elapsed":       elapsed.String(),
 			},
 		}); err != nil {
-			fmt.Fprintln(stderr, err)
+			_, _ = fmt.Fprintln(stderr, err)
 			return exitError
 		}
 		return exitMatch
 	}
 	if _, err := fmt.Fprintf(w, "%d matches in %d tables (%d tables scanned) in %s\n",
 		totalMatches, matchedTables, tablesScanned, elapsed); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
 	return exitMatch

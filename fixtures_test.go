@@ -106,7 +106,7 @@ func fixturePath(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	for _, stmt := range fixtureStmts {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("fixture stmt failed: %v\n%s", err, stmt)
@@ -135,7 +135,7 @@ func brokenViewPath(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	for _, stmt := range brokenViewStmts {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("broken-view fixture stmt failed: %v\n%s", err, stmt)
@@ -150,7 +150,7 @@ func TestFixtureBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var n int
 	if err := db.QueryRow(`SELECT count(*) FROM events`).Scan(&n); err != nil {
 		t.Fatal(err)

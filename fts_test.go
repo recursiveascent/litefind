@@ -14,7 +14,7 @@ func resolveFixture(t *testing.T, o searchOpts) ([]ftsTarget, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,9 @@ func TestFTSMissEmitsRunnableSetupSQL(t *testing.T) {
 	if _, err := w.Exec(sqlText); err != nil {
 		t.Fatalf("emitted SQL failed to execute: %v\n%s", err, sqlText)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	out, _, code := runCmd(t, "--fts", "timeout", path, "-t", "events")
 	if code != exitMatch || !strings.Contains(out, "events_fts:") {
 		t.Fatalf("retry after setup: exit %d\n%s", code, out)

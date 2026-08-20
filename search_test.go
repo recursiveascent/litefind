@@ -30,7 +30,7 @@ func scanFixture(t *testing.T, table, pattern string, o searchOpts) []match {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestScanTableRowidAndSpans(t *testing.T) {
 		t.Errorf("spans = %v", m.spans)
 	}
 	// Determinism: rowid order.
-	if !(ms[0].rowid < ms[1].rowid && ms[1].rowid < ms[2].rowid) {
+	if ms[0].rowid >= ms[1].rowid || ms[1].rowid >= ms[2].rowid {
 		t.Errorf("rows out of rowid order: %v %v %v", ms[0].rowid, ms[1].rowid, ms[2].rowid)
 	}
 }
@@ -154,7 +154,7 @@ func TestScanTableRowFullRegardlessOfColsFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +234,7 @@ func TestScanTableWideTableBatching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestScanTableOverwideIdentityError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	re, err := buildMatcher("x", searchOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +390,7 @@ func TestScanTableWideCompositePK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -514,7 +514,7 @@ func TestSearchJSONParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.close()
+	defer func() { _ = db.close() }()
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -529,11 +529,11 @@ func TestSearchJSONParity(t *testing.T) {
 
 	escape := strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`)
 	textSet := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(textOut), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(textOut), "\n") {
 		textSet[line] = true
 	}
 	jsonSet := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(jsonOut), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(jsonOut), "\n") {
 		var obj struct {
 			Table  string         `json:"table"`
 			Column string         `json:"column"`
@@ -578,7 +578,7 @@ func TestSearchJSONListAndCount(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	sawEvents := false
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		var obj struct {
 			Table string `json:"table"`
 		}
@@ -663,7 +663,7 @@ func TestScanTableNullIdentityAbortsScan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)
@@ -730,7 +730,7 @@ func TestScanTableNullIdentityEmitsNothingWhenNullSortsLate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)

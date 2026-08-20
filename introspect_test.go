@@ -36,7 +36,7 @@ func TestTablesAllAndNoCounts(t *testing.T) {
 func TestTablesJSON(t *testing.T) {
 	out, _, _ := runCmd(t, "tables", fixturePath(t), "--json")
 	// Decode and verify every key is present and lowercase.
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(line), &obj); err != nil {
 			t.Fatalf("not JSONL: %v: %q", err, line)
@@ -75,7 +75,7 @@ func TestTablesCmdTablesErrorRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Close the database to cause catalog() to fail
-	db.close()
+	_ = db.close()
 
 	code := cmdTables(db, searchOpts{}, &stdout, &stderr)
 	if code != exitError {
@@ -208,7 +208,7 @@ func TestBrokenViewDoesNotBlockOtherTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatalf("catalog failed on a dangling view: %v", err)

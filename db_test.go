@@ -15,7 +15,7 @@ func TestOpenROOpensFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.close()
+	defer func() { _ = db.close() }()
 }
 
 func TestOpenROMissingFile(t *testing.T) {
@@ -61,7 +61,9 @@ func TestOpenROUnreadableFileReportsRealError(t *testing.T) {
 
 func TestOpenRONotADatabase(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "plain.txt")
-	os.WriteFile(p, []byte("just text, definitely long enough to not be sqlite"), 0o644)
+	if err := os.WriteFile(p, []byte("just text, definitely long enough to not be sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_, err := openRO(p, false)
 	if err == nil || !strings.Contains(err.Error(), "not a SQLite database") {
 		t.Errorf("err = %v, want not-a-database message", err)
@@ -73,7 +75,7 @@ func TestOpenRORefusesWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.close()
+	defer func() { _ = db.close() }()
 	if _, err := db.sql.Exec(`INSERT INTO events (message) VALUES ('nope')`); err == nil {
 		t.Fatal("write on mode=ro connection succeeded; must fail")
 	}
@@ -91,13 +93,17 @@ func TestOpenROLiveWALReadOnlyDir(t *testing.T) {
 	if _, err := w.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE x(a); INSERT INTO x VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-	w.Close() // modernc checkpoints on close; re-create a live -wal artificially
-	os.WriteFile(p+"-wal", []byte("stub"), 0o644)
-	os.Remove(p + "-shm")
+	if err := w.Close(); err != nil { // modernc checkpoints on close; re-create a live -wal artificially
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+"-wal", []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(p + "-shm") // may not exist; absence is fine
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 	_, err = openRO(p, false)
 	if err == nil {
 		t.Skip("platform allowed read-only WAL open; condition not reproducible here")
@@ -113,7 +119,7 @@ func catalogOf(t *testing.T) []tableInfo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.close() })
+	t.Cleanup(func() { _ = db.close() })
 	cat, err := db.catalog()
 	if err != nil {
 		t.Fatal(err)

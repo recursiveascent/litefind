@@ -50,7 +50,7 @@ func reorderArgs(argv []string, valueFlags map[string]bool) []string {
 		case strings.HasPrefix(a, "-") && a != "-":
 			flags = append(flags, a)
 			name := strings.TrimLeft(a, "-")
-			if eq := strings.IndexByte(name, '='); eq >= 0 {
+			if found := strings.Contains(name, "="); found {
 				break // --flag=value carries its own value
 			}
 			if valueFlags[name] && i+1 < len(argv) {

@@ -33,14 +33,18 @@ func TestRenderValueEscapesNewlines(t *testing.T) {
 func TestPrintMatchText(t *testing.T) {
 	var b bytes.Buffer
 	p := &printer{w: &b, maxColumns: 200}
-	p.printMatch(match{table: "events", column: "message", rowid: 412,
-		value: "connection timeout", spans: [][2]int{{11, 18}}})
+	if err := p.printMatch(match{table: "events", column: "message", rowid: 412,
+		value: "connection timeout", spans: [][2]int{{11, 18}}}); err != nil {
+		t.Fatal(err)
+	}
 	if got := b.String(); got != "events.message:412: connection timeout\n" {
 		t.Errorf("text line = %q", got)
 	}
 	b.Reset()
-	p.printMatch(match{table: "config", column: "value",
-		pk: []pkVal{{"key", "timeout"}}, value: "30"})
+	if err := p.printMatch(match{table: "config", column: "value",
+		pk: []pkVal{{"key", "timeout"}}, value: "30"}); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(b.String(), "pk=(timeout)") {
 		t.Errorf("pk identity rendering: %q", b.String())
 	}
@@ -49,8 +53,10 @@ func TestPrintMatchText(t *testing.T) {
 func TestPrintMatchJSON(t *testing.T) {
 	var b bytes.Buffer
 	p := &printer{w: &b, jsonOut: true}
-	p.printMatch(match{table: "events", column: "message", rowid: 412,
-		value: "connection timeout", spans: [][2]int{{11, 18}}})
+	if err := p.printMatch(match{table: "events", column: "message", rowid: 412,
+		value: "connection timeout", spans: [][2]int{{11, 18}}}); err != nil {
+		t.Fatal(err)
+	}
 	var obj map[string]any
 	if err := json.Unmarshal(b.Bytes(), &obj); err != nil {
 		t.Fatalf("not JSONL: %v: %q", err, b.String())
@@ -66,14 +72,18 @@ func TestPrintMatchJSON(t *testing.T) {
 func TestPrintFTSMatch(t *testing.T) {
 	var b bytes.Buffer
 	p := &printer{w: &b}
-	p.printFTSMatch(ftsMatch{table: "notes", rowid: 2,
-		snippet: "ripgrep \x01habits\x02 transfer", rank: -1.5})
+	if err := p.printFTSMatch(ftsMatch{table: "notes", rowid: 2,
+		snippet: "ripgrep \x01habits\x02 transfer", rank: -1.5}); err != nil {
+		t.Fatal(err)
+	}
 	if got := b.String(); got != "notes:2: ripgrep habits transfer\n" {
 		t.Errorf("fts text = %q (markers stripped without color)", got)
 	}
 	b.Reset()
 	p.jsonOut = true
-	p.printFTSMatch(ftsMatch{table: "notes", rowid: 2, snippet: "a \x01b\x02", rank: -1.5})
+	if err := p.printFTSMatch(ftsMatch{table: "notes", rowid: 2, snippet: "a \x01b\x02", rank: -1.5}); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(b.String(), `"rank":-1.5`) || strings.ContainsRune(b.String(), '\x01') {
 		t.Errorf("fts json = %q", b.String())
 	}
@@ -83,7 +93,9 @@ func TestPrintFTSMatchTruncatesSnippet(t *testing.T) {
 	var b bytes.Buffer
 	p := &printer{w: &b, maxColumns: 20}
 	long := strings.Repeat("x", 40) + "\x01hit\x02" + strings.Repeat("y", 40)
-	p.printFTSMatch(ftsMatch{table: "notes", rowid: 1, snippet: long})
+	if err := p.printFTSMatch(ftsMatch{table: "notes", rowid: 1, snippet: long}); err != nil {
+		t.Fatal(err)
+	}
 	got := b.String()
 	if !strings.Contains(got, "hit") || !strings.Contains(got, "…") {
 		t.Errorf("snippet window must center on marker with ellipses: %q", got)
@@ -101,7 +113,9 @@ func TestPrintFTSMatchTruncatesSnippetWithColor(t *testing.T) {
 	var b bytes.Buffer
 	p := &printer{w: &b, maxColumns: 20, color: true}
 	long := strings.Repeat("x", 40) + "\x01hit\x02" + strings.Repeat("y", 40)
-	p.printFTSMatch(ftsMatch{table: "notes", rowid: 1, snippet: long})
+	if err := p.printFTSMatch(ftsMatch{table: "notes", rowid: 1, snippet: long}); err != nil {
+		t.Fatal(err)
+	}
 	got := b.String()
 
 	opens := strings.Count(got, "\x1b[1;31m")

@@ -184,25 +184,25 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	inv, err := parseInvocation(argv)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(stdout, usage)
+			_, _ = fmt.Fprint(stdout, usage)
 			return exitMatch
 		}
-		fmt.Fprintf(stderr, "%v\n%s", err, usage)
+		_, _ = fmt.Fprintf(stderr, "%v\n%s", err, usage)
 		return exitError
 	}
 
 	// Handle quickstart subcommand: print guide, no db needed.
 	if inv.sub == "quickstart" {
-		fmt.Fprint(stdout, quickstart)
+		_, _ = fmt.Fprint(stdout, quickstart)
 		return exitMatch
 	}
 
 	db, err := openRO(inv.dbPath, inv.opts.immutable)
 	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
+		_, _ = fmt.Fprintf(stderr, "%v\n", err)
 		return exitError
 	}
-	defer db.close()
+	defer func() { _ = db.close() }()
 
 	switch inv.sub {
 	case "tables":
@@ -216,6 +216,6 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return cmdSearch(db, inv, stdout, stderr)
 	}
 
-	fmt.Fprint(stderr, "not implemented yet\n")
+	_, _ = fmt.Fprint(stderr, "not implemented yet\n")
 	return exitError
 }
