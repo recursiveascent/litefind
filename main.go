@@ -197,36 +197,19 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return exitMatch
 	}
 
-	// Handle tables subcommand
-	if inv.sub == "tables" {
-		db, err := openRO(inv.dbPath, inv.opts.immutable)
-		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
-			return exitError
-		}
-		defer db.close()
+	db, err := openRO(inv.dbPath, inv.opts.immutable)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return exitError
+	}
+	defer db.close()
+
+	switch inv.sub {
+	case "tables":
 		return cmdTables(db, inv.opts, stdout, stderr)
-	}
-
-	// Handle schema subcommand
-	if inv.sub == "schema" {
-		db, err := openRO(inv.dbPath, inv.opts.immutable)
-		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
-			return exitError
-		}
-		defer db.close()
+	case "schema":
 		return cmdSchema(db, inv.glob, inv.opts.jsonOut, stdout, stderr)
-	}
-
-	// Handle search (the default subcommand)
-	if inv.sub == "search" {
-		db, err := openRO(inv.dbPath, inv.opts.immutable)
-		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
-			return exitError
-		}
-		defer db.close()
+	case "search":
 		if inv.opts.fts != "" {
 			return cmdSearchFTS(db, inv, stdout, stderr)
 		}

@@ -159,8 +159,8 @@ type schemaObject struct {
 func cmdSchema(db *database, glob string, jsonOut bool, stdout, stderr io.Writer) int {
 	// Validate glob pattern upfront
 	if glob != "" {
-		if _, err := path.Match(glob, ""); err != nil {
-			fmt.Fprintf(stderr, "invalid glob pattern %q: %v\n", glob, err)
+		if err := validateGlob(glob); err != nil {
+			fmt.Fprintln(stderr, err)
 			return exitError
 		}
 	}
@@ -252,20 +252,46 @@ func getIndexDDL(db *database, indexName string) (string, error) {
 	return sql, err
 }
 
+// schemaData is the DDL, indexes, and foreign keys for one table — fetched
+// together by both the JSON and text schema renderers.
+type schemaData struct {
+	ddl     string
+	indexes []schemaIndex
+	fks     []schemaFK
+}
+
+// fetchSchema loads one table's DDL, indexes, and foreign keys. Both schema
+// output paths need exactly this triple in this order; fetching it once
+// keeps their error handling consistent.
+func fetchSchema(db *database, name string) (schemaData, error) {
+	ddl, err := getDDL(db, name)
+	if err != nil {
+		return schemaData{}, err
+	}
+	indexes, err := getIndexes(db, name)
+	if err != nil {
+		return schemaData{}, err
+	}
+	fks, err := getForeignKeys(db, name)
+	if err != nil {
+		return schemaData{}, err
+	}
+	return schemaData{ddl: ddl, indexes: indexes, fks: fks}, nil
+}
+
 // buildSchemaObject builds a schemaObject for JSON output.
 func buildSchemaObject(db *database, t tableInfo) (schemaObject, error) {
-	// Get DDL
-	ddl, err := getDDL(db, t.name)
+	d, err := fetchSchema(db, t.name)
 	if err != nil {
 		return schemaObject{}, err
 	}
 
 	obj := schemaObject{
 		Name:        t.name,
-		DDL:         ddl,
+		DDL:         d.ddl,
 		Columns:     []schemaColumn{},
-		Indexes:     []schemaIndex{},
-		ForeignKeys: []schemaFK{},
+		Indexes:     d.indexes,
+		ForeignKeys: d.fks,
 	}
 
 	// Add columns
@@ -274,29 +300,14 @@ func buildSchemaObject(db *database, t tableInfo) (schemaObject, error) {
 		if c.dflt.Valid {
 			defVal = c.dflt.String
 		}
-		sc := schemaColumn{
+		obj.Columns = append(obj.Columns, schemaColumn{
 			Name:    c.name,
 			Type:    c.declType,
 			NotNull: c.notNull,
 			Default: defVal,
 			PK:      c.pk,
-		}
-		obj.Columns = append(obj.Columns, sc)
+		})
 	}
-
-	// Add indexes
-	indexes, err := getIndexes(db, t.name)
-	if err != nil {
-		return obj, err
-	}
-	obj.Indexes = indexes
-
-	// Add foreign keys
-	fks, err := getForeignKeys(db, t.name)
-	if err != nil {
-		return obj, err
-	}
-	obj.ForeignKeys = fks
 
 	return obj, nil
 }
@@ -410,16 +421,15 @@ func getForeignKeys(db *database, tableName string) ([]schemaFK, error) {
 
 // outputSchemaText outputs schema in text format.
 func outputSchemaText(stdout io.Writer, db *database, t tableInfo, stderr io.Writer) error {
-	// Get DDL
-	ddl, err := getDDL(db, t.name)
+	d, err := fetchSchema(db, t.name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error getting DDL for %s: %v\n", t.name, err)
+		fmt.Fprintf(stderr, "error getting schema for %s: %v\n", t.name, err)
 		return err
 	}
 
 	// Output DDL
-	if ddl != "" {
-		fmt.Fprintf(stdout, "%s\n", ddl)
+	if d.ddl != "" {
+		fmt.Fprintf(stdout, "%s\n", d.ddl)
 	}
 
 	// Output columns
@@ -438,14 +448,9 @@ func outputSchemaText(stdout io.Writer, db *database, t tableInfo, stderr io.Wri
 	}
 
 	// Output indexes
-	indexes, err := getIndexes(db, t.name)
-	if err != nil {
-		fmt.Fprintf(stderr, "error getting indexes for %s: %v\n", t.name, err)
-		return err
-	}
-	if len(indexes) > 0 {
+	if len(d.indexes) > 0 {
 		fmt.Fprintf(stdout, "\nINDEXES:\n")
-		for _, idx := range indexes {
+		for _, idx := range d.indexes {
 			unique := ""
 			if idx.Unique {
 				unique = " UNIQUE"
@@ -460,14 +465,9 @@ func outputSchemaText(stdout io.Writer, db *database, t tableInfo, stderr io.Wri
 	}
 
 	// Output foreign keys
-	fks, err := getForeignKeys(db, t.name)
-	if err != nil {
-		fmt.Fprintf(stderr, "error getting foreign keys for %s: %v\n", t.name, err)
-		return err
-	}
-	if len(fks) > 0 {
+	if len(d.fks) > 0 {
 		fmt.Fprintf(stdout, "\nFOREIGN KEYS:\n")
-		for _, fk := range fks {
+		for _, fk := range d.fks {
 			toStr := "(pk)"
 			if fk.To != nil {
 				toStr = fmt.Sprintf("(%v)", fk.To)

@@ -556,29 +556,31 @@ func matchesAnyGlob(globs []string, name string) bool {
 	return false
 }
 
+// validateGlob reports whether g is a syntactically valid path.Match glob.
+func validateGlob(g string) error {
+	if _, err := path.Match(g, ""); err != nil {
+		return fmt.Errorf("invalid glob pattern %q: %v", g, err)
+	}
+	return nil
+}
+
 // validateGlobs checks every -t, -T, and -c glob (the COLGLOB half of a
 // -c value, not its optional TABLE qualifier) for syntax errors, via the
 // same path.Match probe the schema subcommand uses.
 func validateGlobs(o searchOpts) error {
-	check := func(g string) error {
-		if _, err := path.Match(g, ""); err != nil {
-			return fmt.Errorf("invalid glob pattern %q: %v", g, err)
-		}
-		return nil
-	}
 	for _, g := range o.tables {
-		if err := check(g); err != nil {
+		if err := validateGlob(g); err != nil {
 			return err
 		}
 	}
 	for _, g := range o.notTables {
-		if err := check(g); err != nil {
+		if err := validateGlob(g); err != nil {
 			return err
 		}
 	}
 	for _, spec := range o.columns {
 		_, colGlob := splitColumnSpec(spec)
-		if err := check(colGlob); err != nil {
+		if err := validateGlob(colGlob); err != nil {
 			return err
 		}
 	}
@@ -777,20 +779,8 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		matchedTables++
 		totalMatches += count
 		switch {
-		case o.listTables:
-			if o.jsonOut {
-				if err := json.NewEncoder(stdout).Encode(map[string]any{"table": st.name}); err != nil && firstErr == nil {
-					firstErr = err
-				}
-			} else if _, err := fmt.Fprintln(stdout, st.name); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		case o.count:
-			if o.jsonOut {
-				if err := json.NewEncoder(stdout).Encode(map[string]any{"table": st.name, "count": count}); err != nil && firstErr == nil {
-					firstErr = err
-				}
-			} else if _, err := fmt.Fprintf(stdout, "%s:%d\n", st.name, count); err != nil && firstErr == nil {
+		case o.listTables, o.count:
+			if err := emitTableSummary(stdout, st.name, count, o.listTables, o.count, o.jsonOut); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
@@ -802,28 +792,56 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	}
 
 	if o.stats {
-		elapsed := time.Since(start)
-		if o.jsonOut {
-			if err := json.NewEncoder(stdout).Encode(map[string]any{
-				"stats": map[string]any{
-					"matches":       totalMatches,
-					"tables":        matchedTables,
-					"tablesScanned": tablesScanned,
-					"elapsed":       elapsed.String(),
-				},
-			}); err != nil {
-				fmt.Fprintln(stderr, err)
-				return exitError
-			}
-		} else if _, err := fmt.Fprintf(stdout, "%d matches in %d tables (%d tables scanned) in %s\n",
-			totalMatches, matchedTables, tablesScanned, elapsed); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitError
+		if rc := emitStats(stdout, stderr, totalMatches, matchedTables, tablesScanned, time.Since(start), o.jsonOut); rc != exitMatch {
+			return rc
 		}
 	}
 
 	if totalMatches == 0 {
 		return exitNoMatch
+	}
+	return exitMatch
+}
+
+// emitTableSummary prints one table's -l or --count line, text or JSON.
+func emitTableSummary(w io.Writer, name string, count int, listTables, countMode, jsonOut bool) error {
+	switch {
+	case listTables:
+		if jsonOut {
+			return json.NewEncoder(w).Encode(map[string]any{"table": name})
+		}
+		_, err := fmt.Fprintln(w, name)
+		return err
+	case countMode:
+		if jsonOut {
+			return json.NewEncoder(w).Encode(map[string]any{"table": name, "count": count})
+		}
+		_, err := fmt.Fprintf(w, "%s:%d\n", name, count)
+		return err
+	}
+	return nil
+}
+
+// emitStats prints the --stats summary line, text or JSON.
+func emitStats(w, stderr io.Writer, totalMatches, matchedTables, tablesScanned int, elapsed time.Duration, jsonOut bool) int {
+	if jsonOut {
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"stats": map[string]any{
+				"matches":       totalMatches,
+				"tables":        matchedTables,
+				"tablesScanned": tablesScanned,
+				"elapsed":       elapsed.String(),
+			},
+		}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitError
+		}
+		return exitMatch
+	}
+	if _, err := fmt.Fprintf(w, "%d matches in %d tables (%d tables scanned) in %s\n",
+		totalMatches, matchedTables, tablesScanned, elapsed); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitError
 	}
 	return exitMatch
 }

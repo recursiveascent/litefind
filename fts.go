@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -118,7 +117,7 @@ func resolveFTS(cat []tableInfo, opts searchOpts) ([]ftsTarget, error) {
 			if ti.contentless {
 				return nil, fmt.Errorf("%s is a contentless FTS5 table (content=''): it stores no text, so snippets and --row cannot be produced; search an external-content or regular FTS5 table instead", ti.name)
 			}
-			raw = append(raw, ftsTarget{index: ti.name, source: ti.ftsContent, contentRowid: ti.ftsContentRowid})
+			raw = append(raw, directFTSTarget(ti))
 		case "table":
 			siblings := ftsSiblingsOf(cat, ti.name)
 			if len(siblings) == 0 {
@@ -178,9 +177,16 @@ func unscopedFTSTargets(cat []tableInfo, excluded func(name string) bool) []ftsT
 		if ti.kind != "fts5" || ti.shadow || ti.contentless || excluded(ti.name) {
 			continue
 		}
-		targets = append(targets, ftsTarget{index: ti.name, source: ti.ftsContent, contentRowid: ti.ftsContentRowid})
+		targets = append(targets, directFTSTarget(ti))
 	}
 	return targets
+}
+
+// directFTSTarget builds a target that queries an fts5 table directly,
+// carrying its content/content_rowid metadata so --row still works for an
+// external-content index reached without source-table mapping.
+func directFTSTarget(ti tableInfo) ftsTarget {
+	return ftsTarget{index: ti.name, source: ti.ftsContent, contentRowid: ti.ftsContentRowid}
 }
 
 // dedupFTSTargets collapses targets that resolved to the same index name
@@ -529,23 +535,8 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		totalMatches += len(matches)
 
 		switch {
-		case o.listTables:
-			if o.jsonOut {
-				if err := json.NewEncoder(stdout).Encode(map[string]any{"table": tgt.index}); err != nil {
-					fmt.Fprintln(stderr, err)
-					return exitError
-				}
-			} else if _, err := fmt.Fprintln(stdout, tgt.index); err != nil {
-				fmt.Fprintln(stderr, err)
-				return exitError
-			}
-		case o.count:
-			if o.jsonOut {
-				if err := json.NewEncoder(stdout).Encode(map[string]any{"table": tgt.index, "count": len(matches)}); err != nil {
-					fmt.Fprintln(stderr, err)
-					return exitError
-				}
-			} else if _, err := fmt.Fprintf(stdout, "%s:%d\n", tgt.index, len(matches)); err != nil {
+		case o.listTables, o.count:
+			if err := emitTableSummary(stdout, tgt.index, len(matches), o.listTables, o.count, o.jsonOut); err != nil {
 				fmt.Fprintln(stderr, err)
 				return exitError
 			}
@@ -560,23 +551,8 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	}
 
 	if o.stats {
-		elapsed := time.Since(start)
-		if o.jsonOut {
-			if err := json.NewEncoder(stdout).Encode(map[string]any{
-				"stats": map[string]any{
-					"matches":       totalMatches,
-					"tables":        matchedTables,
-					"tablesScanned": len(targets),
-					"elapsed":       elapsed.String(),
-				},
-			}); err != nil {
-				fmt.Fprintln(stderr, err)
-				return exitError
-			}
-		} else if _, err := fmt.Fprintf(stdout, "%d matches in %d tables (%d tables scanned) in %s\n",
-			totalMatches, matchedTables, len(targets), elapsed); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitError
+		if rc := emitStats(stdout, stderr, totalMatches, matchedTables, len(targets), time.Since(start), o.jsonOut); rc != exitMatch {
+			return rc
 		}
 	}
 
