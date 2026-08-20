@@ -20,6 +20,18 @@ the Homebrew tap formula automatically.
   (paste the token at the prompt). The default `GITHUB_TOKEN` in Actions is
   scoped to the `litefind` repo and cannot push to the tap; `TAP_TOKEN` is the
   only secret the release workflow uses for that step.
+- The gh token needs the `workflow` scope to push commits that touch
+  `.github/workflows/`. If it's missing, refresh:
+
+  ```
+  gh auth refresh -h github.com -s workflow
+  ```
+- The Git remote must be pushable. If it's SSH and the agent isn't running,
+  switch to HTTPS (gh's credential helper handles auth):
+
+  ```
+  git remote set-url origin https://github.com/recursiveascent/litefind.git
+  ```
 
 ## Steps
 
@@ -48,22 +60,28 @@ the Homebrew tap formula automatically.
 
 5. **Commit** the `VERSION` bump and any release-config changes (e.g.
    `.goreleaser.yaml`, `.github/workflows/release.yml`) with a
-   `Prepare <version> release` message.
+   `Prepare <version> release` message. Keep this a single atomic commit —
+   the tag must point at a commit whose `VERSION` matches, or the workflow
+   fails the verify step.
 
-6. **Push `main`:**
-
-   ```
-   jj git push --allow-new
-   ```
-
-7. **Tag and push the tag:**
+6. **Move `main` to the release commit and push:**
 
    ```
-   git tag v<version>
+   jj bookmark set main -r @
+   git push origin main
+   ```
+
+   The working-copy commit is not on `main` until you move the bookmark.
+
+7. **Tag `main` and push the tag:**
+
+   ```
+   git tag v<version> main
    git push origin v<version>
    ```
 
-   Pushing a `v*` tag triggers the `Release` workflow.
+   Tag `main` explicitly, not the working copy — the tag must point at the
+   same commit `main` does. Pushing a `v*` tag triggers the `Release` workflow.
 
 ## What the workflow does
 
