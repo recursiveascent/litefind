@@ -6,14 +6,77 @@ scoping vocabulary.
 
 ## Install
 
+### Homebrew
+
+```
+brew install recursiveascent/tap/litefind
+```
+
+### Go
+
 ```
 go install github.com/recursiveascent/litefind@latest
 ```
 
-Or build from source:
+Installs to `$(go env GOPATH)/bin`. Pin a version with `@v1.2.3` instead of
+`@latest`.
+
+### Nix
+
+Run it once without installing:
 
 ```
+nix run github:recursiveascent/litefind -- timeout events.db
+```
+
+Drop into a shell with it on `$PATH`:
+
+```
+nix shell github:recursiveascent/litefind
+```
+
+Install into your profile:
+
+```
+nix profile install github:recursiveascent/litefind
+```
+
+Or add it as a flake input:
+
+```nix
+{
+  inputs.litefind.url = "github:recursiveascent/litefind";
+  # ...
+  environment.systemPackages = [ inputs.litefind.packages.${system}.default ];
+}
+```
+
+### Release binaries
+
+Prebuilt tarballs for macOS and Linux (amd64 and arm64) are on the
+[releases page](https://github.com/recursiveascent/litefind/releases). Download,
+verify, extract, and put `litefind` somewhere on your `$PATH`:
+
+```
+tar xzf litefind_1.2.3_darwin_arm64.tar.gz
+install -m755 litefind /usr/local/bin/
+```
+
+### From source
+
+```
+git clone https://github.com/recursiveascent/litefind
+cd litefind
+# optionally, `nix develop` first
 make build
+```
+
+Requires Go 1.26 or later.
+
+### Verify
+
+```
+litefind --version
 ```
 
 ## Usage
