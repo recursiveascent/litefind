@@ -55,7 +55,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.go_1_26 pkgs.golangci-lint ];
+            packages = [ pkgs.go_1_26 pkgs.golangci-lint pkgs.goreleaser ];
           };
         }
       );
