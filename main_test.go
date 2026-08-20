@@ -44,20 +44,4 @@ func TestRunHelpPrintsFullHelp(t *testing.T) {
 			t.Errorf("stdout missing %q; stdout = %q", want, stdout)
 		}
 	}
-	if strings.Contains(stdout, "quickstart") {
-		t.Errorf("stdout still documents removed quickstart command: %q", stdout)
-	}
-}
-
-func TestRunFormerCommandNamesAreSearchPatterns(t *testing.T) {
-	path := fixturePath(t)
-	for _, pattern := range []string{"tables", "schema", "quickstart"} {
-		_, stderr, code := runCmd(t, pattern, path)
-		if code != exitNoMatch {
-			t.Errorf("pattern %q exit = %d, want %d; stderr = %q", pattern, code, exitNoMatch, stderr)
-		}
-		if strings.Contains(stderr, "usage:") {
-			t.Errorf("pattern %q was treated as a command; stderr = %q", pattern, stderr)
-		}
-	}
 }

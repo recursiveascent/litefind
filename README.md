@@ -148,13 +148,3 @@ ripgrep's contract:
 | 0 | at least one match found |
 | 1 | no matches found |
 | 2 | usage or runtime error |
-
-## Development
-
-```
-make test     # go test ./...
-make lint     # go vet ./...
-make fmt      # gofmt -w .
-```
-
-Go 1.26 or later.
