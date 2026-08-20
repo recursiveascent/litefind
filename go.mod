@@ -1,4 +1,4 @@
-module github.com/paulsmith/litefind
+module github.com/recursiveascent/litefind
 
 go 1.26.3
 

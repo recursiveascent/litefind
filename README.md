@@ -7,7 +7,7 @@ scoping vocabulary.
 ## Install
 
 ```
-go install github.com/paulsmith/litefind@latest
+go install github.com/recursiveascent/litefind@latest
 ```
 
 Or build from source:

@@ -4,7 +4,7 @@ description: Use when searching or introspecting a SQLite database file (.db, .s
 license: MIT
 compatibility: Requires the `litefind` binary on PATH.
 metadata:
-  homepage: https://github.com/paulsmith/litefind
+  homepage: https://github.com/recursiveascent/litefind
   spec: https://agentskills.io/specification
 allowed-tools: Bash(litefind:*)
 ---
@@ -27,7 +27,7 @@ Flags may appear anywhere on the command line, rg-style: `litefind --json timeou
 
 Install the binary:
 ```
-go install github.com/paulsmith/litefind@latest
+go install github.com/recursiveascent/litefind@latest
 ```
 
 Install this skill by copying `SKILL.md` into your agent harness's skills directory (e.g. `~/.agents/skills/litefind/SKILL.md`, `~/.claude/skills/litefind/SKILL.md`). Some harnesses read skills from the repo; commit the `skills/litefind/` directory so agents in your project discover it automatically.
