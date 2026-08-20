@@ -1,5 +1,7 @@
 # litefind
 
+[![CI](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml/badge.svg)](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml)
+
 ripgrep for SQLite databases. Read-only regex, fixed-string, and FTS5 search,
 plus schema introspection. Tables and columns replace paths and globs as the
 scoping vocabulary.
