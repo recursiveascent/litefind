@@ -13,6 +13,10 @@ builds:
 archives:
   - formats:
       - tar.gz
+    files:
+      - README.md
+      - CHANGELOG.md
+      - COPYING
 
 checksum:
   name_template: checksums.txt

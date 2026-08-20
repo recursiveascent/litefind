@@ -14,6 +14,7 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       pkgsFor = system: import nixpkgs { inherit system; };
+      packageVersion = nixpkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
     in
     {
       packages = forAllSystems (
@@ -24,7 +25,7 @@
         {
           default = pkgs.buildGoModule {
             pname = "litefind";
-            version = "0.1.0";
+            version = packageVersion;
             src = ./.;
             vendorHash = "sha256-BAvfNq8jRMtxnNRnCfD4m3N9Yqc7o9dM/v6eVfK0Iag=";
             ldflags = [
@@ -55,7 +56,11 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.go_1_26 pkgs.golangci-lint pkgs.goreleaser ];
+            packages = [
+              pkgs.go_1_26
+              pkgs.golangci-lint
+              pkgs.goreleaser
+            ];
           };
         }
       );
