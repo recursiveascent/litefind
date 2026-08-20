@@ -6,6 +6,7 @@ builds:
     goos:
       - darwin
       - linux
+      - windows
     goarch:
       - amd64
       - arm64
@@ -17,6 +18,10 @@ archives:
       - README.md
       - CHANGELOG.md
       - COPYING
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
 
 checksum:
   name_template: checksums.txt

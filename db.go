@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -36,7 +37,7 @@ func openRO(path string, immutable bool) (*database, error) {
 		}
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	dsn := "file:" + url.PathEscape(path) + "?mode=ro&_pragma=busy_timeout(5000)"
+	dsn := "file:" + url.PathEscape(filepath.ToSlash(path)) + "?mode=ro&_pragma=busy_timeout(5000)"
 	if immutable {
 		dsn += "&immutable=1"
 	}

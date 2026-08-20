@@ -23,3 +23,19 @@ jobs:
       - run: nix build
       - run: make check
         shell: 'nix develop -c bash -e {0}'
+
+  cross:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v17
+        with:
+          name: recursiveascent
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build for windows/amd64
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o build/litefind.exe .
+        shell: 'nix develop -c bash -e {0}'
+      - name: Vet for windows/amd64
+        run: GOOS=windows GOARCH=amd64 go vet ./...
+        shell: 'nix develop -c bash -e {0}'
