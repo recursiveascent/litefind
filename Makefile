@@ -1,7 +1,7 @@
-.PHONY: build test lint fmt
+.PHONY: build test lint check clean
 
 build:
-	go build -o litefind .
+	go build -o build/litefind .
 
 test:
 	go test ./...
@@ -9,5 +9,9 @@ test:
 lint:
 	go vet ./...
 
-fmt:
-	gofmt -w .
+check: test lint
+	go fix -d ./...
+	golangci-lint run ./...
+
+clean:
+	-rm -rf ./build
