@@ -27,3 +27,36 @@ jobs:
         shell: 'nix develop -c bash -e {0}'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          set -eu
+          tag="$GITHUB_REF_NAME"
+          url="https://github.com/recursiveascent/litefind/archive/refs/tags/$tag.tar.gz"
+          sha="$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)"
+          {
+            echo 'class Litefind < Formula'
+            echo '  desc "Search your SQLite databases"'
+            echo '  homepage "https://github.com/recursiveascent/litefind"'
+            echo "  url \"$url\""
+            echo "  sha256 \"$sha\""
+            echo '  license "MIT"'
+            echo
+            echo '  depends_on "go" => :build'
+            echo
+            echo '  def install'
+            echo '    system "go", "build", *std_go_args'
+            echo '  end'
+            echo
+            echo '  test do'
+            echo '    system bin/"litefind", "--help"'
+            echo '  end'
+            echo 'end'
+          } > formula.rb
+          # The Contents API requires the current blob sha to update an
+          # existing file; fetch it first (absent on first release).
+          blob="$(gh api repos/recursiveascent/homebrew-tap/contents/Formula/litefind.rb --jq .sha 2>/dev/null || true)"
+          args=(-X PUT -f message="litefind $tag" -f content="$(base64 -w0 formula.rb)")
+          [ -n "$blob" ] && args+=(-f sha="$blob")
+          gh api repos/recursiveascent/homebrew-tap/contents/Formula/litefind.rb "${args[@]}" --jq '.commit.html_url'

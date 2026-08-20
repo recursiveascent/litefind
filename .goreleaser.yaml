@@ -28,3 +28,6 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+source:
+  enabled: true
