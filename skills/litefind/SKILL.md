@@ -1,17 +1,11 @@
 ---
 name: litefind
-description: Use when searching or introspecting a SQLite database file (.db, .sqlite, .sqlite3) — finding rows matching a pattern across tables, listing tables, or reading schema/DDL. ripgrep-style read-only search where tables and columns replace paths and globs. Use instead of hand-writing SQL SELECT queries when you just need to locate data. Do not use for writing data, running arbitrary SQL, or modifying a database — litefind is strictly read-only.
-license: MIT
-compatibility: Requires the `litefind` binary on PATH.
-metadata:
-  homepage: https://github.com/recursiveascent/litefind
-  spec: https://agentskills.io/specification
-allowed-tools: Bash(litefind:*)
+description: Use when searching or introspecting a SQLite database file (.db, .sqlite, .sqlite3, Chrome history, Core Data stores) — finding rows matching a pattern across tables, listing tables, or reading schema/DDL. ripgrep-style search where tables and columns replace paths and globs. Use instead of hand-writing SQL SELECT queries when you just need to locate data. Do not use for writing data, running arbitrary SQL, or modifying a database.
 ---
 
 # litefind — ripgrep for SQLite databases
 
-`litefind` is a read-only search and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs. The database is opened read-only (`mode=ro`); there is no write path.
+`litefind` is a search and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs.
 
 Three modes:
 
@@ -21,28 +15,19 @@ litefind --tables <db> [flags]                list tables: name, kind, row count
 litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
 
+This skill describes litefind v0.1.1. Run `litefind --version` to confirm; if it
+differs, `litefind --help` is authoritative and this file may be stale.
+
 Flags may appear anywhere on the command line, rg-style: `litefind --json timeout db.sqlite` == `litefind timeout db.sqlite --json`. Introspection is selected only by `--tables` or `--schema`; without either option, the first positional string is always the search pattern.
 
-## Install
-
-Install the binary:
-```
-go install github.com/recursiveascent/litefind@latest
-```
-
-Install this skill by copying `SKILL.md` into your agent harness's skills directory (e.g. `~/.agents/skills/litefind/SKILL.md`, `~/.claude/skills/litefind/SKILL.md`). Some harnesses read skills from the repo; commit the `skills/litefind/` directory so agents in your project discover it automatically.
-
-## When to use
-
-Use when you encounter a SQLite database file and need to find rows matching a pattern, list tables, or read schema/DDL.
-
-Do NOT use for writing data, running arbitrary SQL, or joins/aggregations/projections — there is no SQL escape hatch. Use `sqlite3` or your SQL client for those.
+If `litefind` is not on PATH, stop and tell your human partner how to install it
+(`brew install recursiveascent/tap/litefind`). Do not install it yourself.
 
 ## Orient-then-search workflow
 
 In an unfamiliar database, orient before searching:
 
-1. `litefind --tables <db>` — inventory: names, kinds, row/column counts.
+1. `litefind --tables <db>` — inventory. On a large database (roughly >1 GB, or if this takes more than a few seconds), use --no-counts; row counts require a full COUNT(*) per table.
 2. `litefind --schema <db> [table-glob]` — DDL and column detail for the tables you care about.
 3. `litefind <pattern> <db> [flags]` — now you know which tables/columns to scope.
 
@@ -70,7 +55,6 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `--max-columns N` | truncate displayed values to N chars in text output (default 200; 0 disables; JSON values are not truncated) |
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
 | `--fts QUERY` | FTS5 match syntax; replaces PATTERN |
-| `--immutable` | treat the DB as genuinely static (read-only media, network mounts); unsafe if it could be written concurrently |
 
 `--tables` and `--schema` do not accept the search flags above. `--tables` accepts `--json`, `--no-counts`, `--all-tables`, `--immutable`; `--schema` accepts `--json`, `--immutable`.
 
@@ -79,9 +63,9 @@ Run `litefind --help` for the exhaustive, always-current flag reference.
 ### Output formats
 
 ```
-text:   table.column:rowid: snippet          (pk=(v1,v2) in place of rowid for WITHOUT ROWID and rowid-fallback tables)
-json:   {table, column, rowid|pk, value, spans}   ("row" added when --row is set; --row is JSON-only)
-fts:    table:rowid: snippet                  (text) / {table, rowid, snippet, rank[, row]} (json; row added when --row is set)
+text:   table.column:rowid: snippet                 (pk=(v1,v2) in place of rowid for WITHOUT ROWID and rowid-fallback tables)
+json:   {table, column, rowid|pk, value, spans}     ("row" added when --row is set; --row is JSON-only)
+fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json; row added when --row is set)
 ```
 
 Exit codes (ripgrep's contract): `0` match found, `1` no match, `2` usage/runtime error.
@@ -121,6 +105,8 @@ litefind --fts '{body}: timeout' events.db        # FTS5 column-filter syntax
 ## Gotchas
 
 **`-c` scopes columns, it is NOT count.** This is a deliberate divergence from rg, where `-c` means count. In litefind column scoping is the more common gesture, so `-c` means columns and count is long-only `--count`. The most common agent mistake is reaching for `-c` to count matches — use `--count`.
+
+**Exit 1 means "no matches," not failure.** Do not retry, do not vary flags, do not report an error. Report that nothing matched. Only exit 2 is an actual error.
 
 **`--fts` is a different matching regime.** These flags are rejected with a usage error (exit 2) when combined with `--fts`: `-F -i -S -w -c --all-tables`. Case and tokenization are governed by the FTS5 index's own tokenizer, not by litefind flags; scope columns with FTS5's native syntax, e.g. `--fts '{body}: timeout'`. Compatible with `--fts`: `-t`/`-T`, `-l`, `-m`, `--count`, `--row`, `--json`, `--stats`, `--max-columns`, `--immutable`. FTS output is row-level (no column/spans); rows are rank-ordered per FTS index, not globally across indexes.
 

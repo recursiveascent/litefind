@@ -3,7 +3,7 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +21,9 @@ const (
 
 //go:embed VERSION
 var versionFile string
+
+//go:embed skills/litefind
+var skillFS embed.FS
 
 // versionOverride is set at release time via -ldflags
 // "-X 'main.versionOverride=v0.1.0'", so a tagged CI artifact or Nix
@@ -56,6 +59,7 @@ usage:
   litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
   litefind --tables <db> [flags]                list tables: name, kind, row count, column count
   litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
+  litefind --skill <subcmd> [flags]             manage the litefind skill (install/print/status)
 
 Flags may appear anywhere on the command line, rg-style:
   litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
@@ -104,6 +108,17 @@ introspection flags:
   --no-counts                (--tables only) skip COUNT(*) row counts
   --all-tables               (--tables only) include shadow tables
   --immutable                (all modes) see immutable/wal below
+
+skill management:
+  --skill install [--target user|project|both] [--dir PATH] [--force]
+      write the embedded SKILL.md to a skills-root. --target user lands
+      in ~/.agents/skills, project in ./skills, both in each. --dir PATH
+      overrides the root (one location; not valid with --target both).
+      Aborts if the file exists unless --force is set.
+  --skill print              print the embedded SKILL.md to stdout
+  --skill status [--dir PATH] report installed/current/drifted vs embedded;
+      defaults to the --target locations (user, project, or both). A file
+      that differs from the embedded copy is DRIFTED.
 
 regex engine:
   Default pattern syntax is Go's RE2 (regexp/syntax), not PCRE — near-parity
@@ -192,6 +207,10 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	if inv.sub == "version" {
 		_, _ = fmt.Fprintf(stdout, "litefind %s\n", version())
 		return exitMatch
+	}
+
+	if inv.sub == "skill" {
+		return cmdSkill(inv, stdout, stderr)
 	}
 
 	db, err := openRO(inv.dbPath, inv.opts.immutable)

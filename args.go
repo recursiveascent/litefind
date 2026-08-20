@@ -22,6 +22,7 @@ type invocation struct {
 	dbPath  string
 	glob    string
 	opts    searchOpts
+	skill   skillOpts
 }
 
 type multiFlag []string
@@ -115,6 +116,16 @@ var allowedFlags = map[string]map[string]bool{
 // pattern and database path.
 func parseInvocation(argv []string) (*invocation, error) {
 	inv := &invocation{sub: "search"}
+
+	// --skill short-circuits before the main FlagSet: it has its own
+	// sub-flags (--target, --dir, --force) that the search/introspection
+	// FlagSet does not know about.
+	if rest, ok, err := takeSkill(argv); ok {
+		if err != nil {
+			return nil, err
+		}
+		return parseSkill(rest)
+	}
 
 	fs := flag.NewFlagSet("litefind", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -298,4 +309,35 @@ func checkFTSFlagCompat(o searchOpts) error {
 		return fmt.Errorf("%s cannot be combined with --fts: case and tokenization are governed by the FTS index; scope columns with FTS5 syntax, e.g. --fts '{col}: query'", strings.Join(bad, ", "))
 	}
 	return nil
+}
+
+// takeSkill scans argv for a --skill or --skill=SUB flag. If found it
+// returns the remaining args with the subcommand value prepended (so
+// parseSkill sees it as argv[0]), whether it was found, and an error if
+// --skill was supplied without a subcommand value. It stops at "--" so
+// a leading-dash pattern can still be searched.
+func takeSkill(argv []string) (rest []string, found bool, err error) {
+	for i, a := range argv {
+		if a == "--" {
+			break
+		}
+		if a == "--skill" {
+			if i+1 >= len(argv) {
+				return nil, true, fmt.Errorf("--skill requires a subcommand: install, print, or status")
+			}
+			out := make([]string, 0, len(argv)-1)
+			out = append(out, argv[i+1])
+			out = append(out, argv[:i]...)
+			out = append(out, argv[i+2:]...)
+			return out, true, nil
+		}
+		if v, ok := strings.CutPrefix(a, "--skill="); ok {
+			out := make([]string, 0, len(argv)-1)
+			out = append(out, v)
+			out = append(out, argv[:i]...)
+			out = append(out, argv[i+1:]...)
+			return out, true, nil
+		}
+	}
+	return argv, false, nil
 }
