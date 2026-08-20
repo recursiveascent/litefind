@@ -81,6 +81,19 @@ Requires Go 1.26 or later.
 litefind --version
 ```
 
+### Agent skill
+
+Install the bundled skill for your agent:
+
+```
+litefind --skill install
+```
+
+This writes to `~/.agents/skills/litefind/SKILL.md`. Use `--target project` for
+`./skills`, or `--target both` for both locations. Check an installed copy with
+`litefind --skill status`; print the embedded file for another installer with
+`litefind --skill print`.
+
 ## Usage
 
 ```text
