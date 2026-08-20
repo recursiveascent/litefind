@@ -8,6 +8,17 @@ scoping vocabulary.
 
 ## Install
 
+### curl | sh
+
+```
+curl -fsSL https://litefind.dev/install.sh | sh
+```
+
+Installs the latest release binary for your platform, verifying it against
+the release checksums. No `sudo`: installs to `/usr/local/bin` if writable by
+the current user, otherwise `~/.local/bin`. Override the destination with
+`LITEFIND_INSTALL_DIR`.
+
 ### Homebrew
 
 ```

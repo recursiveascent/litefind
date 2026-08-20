@@ -1,4 +1,4 @@
-.PHONY: build test lint check release clean help
+.PHONY: build test lint check release install-test clean help
 
 build: ## Build litefind
 	go build -o build/litefind .
@@ -8,6 +8,7 @@ test: ## Run tests
 
 lint: ## Run static analysis
 	go vet ./...
+	shellcheck install.sh
 
 check: test lint ## Run all checks
 	go fix -diff ./...
@@ -15,6 +16,9 @@ check: test lint ## Run all checks
 
 release: ## Publish a GitHub release
 	goreleaser release --clean
+
+install-test: ## Smoke-test install.sh against a local snapshot release
+	@./scripts/install-test.sh
 
 clean: ## Remove build artifacts
 	-rm -rf ./build

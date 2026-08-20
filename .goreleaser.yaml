@@ -31,3 +31,7 @@ checksum:
 
 source:
   enabled: true
+
+release:
+  extra_files:
+    - glob: install.sh
