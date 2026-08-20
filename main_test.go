@@ -45,3 +45,53 @@ func TestRunHelpPrintsFullHelp(t *testing.T) {
 		}
 	}
 }
+
+func TestRunVersionPrintsVersionAndExits(t *testing.T) {
+	for _, arg := range []string{"-V", "--version"} {
+		t.Run(arg, func(t *testing.T) {
+			stdout, stderr, code := runCmd(t, arg)
+			if code != exitMatch {
+				t.Fatalf("exit = %d, want %d", code, exitMatch)
+			}
+			want := "litefind " + version() + "\n"
+			if stdout != want {
+				t.Errorf("stdout = %q, want %q", stdout, want)
+			}
+			if stderr != "" {
+				t.Errorf("stderr = %q, want empty", stderr)
+			}
+		})
+	}
+}
+
+func TestRunVersionShortCircuitsBeforePositionalValidation(t *testing.T) {
+	// --version works even with args that would otherwise be a usage
+	// error (missing db path) — it short-circuits before validation.
+	stdout, _, code := runCmd(t, "--version", "no-db-here")
+	if code != exitMatch {
+		t.Fatalf("exit = %d, want %d", code, exitMatch)
+	}
+	if !strings.Contains(stdout, version()) {
+		t.Errorf("stdout = %q, want version %q", stdout, version())
+	}
+}
+
+// version() resolves in priority order: override, then the VCS-stamped
+// module version, then the embedded VERSION file. Under go test the
+// module version is "(devel)", so version() falls back to the file.
+func TestVersionResolution(t *testing.T) {
+	// No override, (devel) module version → embedded VERSION file.
+	prev := versionOverride
+	versionOverride = ""
+	got := version()
+	if want := strings.TrimSpace(versionFile); got != want {
+		t.Errorf("version() fallback = %q, want %q", got, want)
+	}
+
+	// Override wins over everything else.
+	versionOverride = "v9.9.9"
+	if got := version(); got != "v9.9.9" {
+		t.Errorf("version() with override = %q, want v9.9.9", got)
+	}
+	versionOverride = prev
+}

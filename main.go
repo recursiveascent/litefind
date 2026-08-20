@@ -3,11 +3,14 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strings"
 )
 
 const (
@@ -15,6 +18,37 @@ const (
 	exitNoMatch = 1
 	exitError   = 2
 )
+
+//go:embed VERSION
+var versionFile string
+
+// versionOverride is set at release time via -ldflags
+// "-X 'main.versionOverride=v0.1.0'", so a tagged CI artifact or Nix
+// build prints exactly its tag instead of a VCS-derived pseudo-version.
+// (For the root main package the -X path is main.<sym>, not the
+// module path — the latter is silently ignored by the linker.)
+var versionOverride string
+
+// version resolves, in priority order:
+//  1. versionOverride — release build ldflags, when set.
+//  2. the module version stamped by the Go toolchain from VCS
+//     (bi.Main.Version), which is the tag for a tagged checkout or a
+//     pseudo-version like v0.1.1-0.<timestamp>-<sha>+dirty otherwise.
+//     This covers `go install ...@v0.1.0` and dev builds alike.
+//  3. the embedded VERSION file — the last released version, always
+//     present; the fallback when VCS stamping is unavailable (module
+//     cache, -buildvcs=false, bare containers).
+func version() string {
+	if versionOverride != "" {
+		return versionOverride
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if mv := bi.Main.Version; mv != "" && mv != "(devel)" {
+			return mv
+		}
+	}
+	return strings.TrimSpace(versionFile)
+}
 
 const usage = `litefind — ripgrep for SQLite databases (read-only)
 
@@ -33,6 +67,10 @@ examples:
   litefind --fts 'NEAR(timeout retry, 3)' events.db    FTS5 query syntax
   litefind --tables events.db                          table inventory
   litefind --schema events.db 'user*'                  DDL for tables matching a glob
+
+common flags:
+  -V, --version              print version and exit
+  -h, --help                 show this help
 
 search flags:
   -t, --table GLOB           include only matching tables (repeatable)
@@ -149,6 +187,11 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		}
 		_, _ = fmt.Fprintf(stderr, "%v\n%s", err, usage)
 		return exitError
+	}
+
+	if inv.sub == "version" {
+		_, _ = fmt.Fprintf(stdout, "litefind %s\n", version())
+		return exitMatch
 	}
 
 	db, err := openRO(inv.dbPath, inv.opts.immutable)

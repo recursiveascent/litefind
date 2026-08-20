@@ -91,6 +91,7 @@ var flagCanonical = map[string]string{
 	"no-counts":   "no-counts",
 	"tables":      "tables",
 	"schema":      "schema",
+	"V":           "V", "version": "V",
 }
 
 // allowedFlags defines which canonical flags are allowed for each mode.
@@ -147,6 +148,8 @@ func parseInvocation(argv []string) (*invocation, error) {
 	noCounts := fs.Bool("no-counts", false, "")
 	fs.Bool("tables", false, "")
 	fs.Bool("schema", false, "")
+	fs.Bool("V", false, "")
+	fs.Bool("version", false, "")
 
 	if err := fs.Parse(reorderArgs(argv, valueFlags)); err != nil {
 		return nil, err
@@ -158,6 +161,12 @@ func parseInvocation(argv []string) (*invocation, error) {
 		canonical := flagCanonical[f.Name]
 		suppliedFlags[canonical] = true
 	})
+
+	// --version short-circuits before any mode or positional validation.
+	if suppliedFlags["V"] {
+		inv.sub = "version"
+		return inv, nil
+	}
 
 	if suppliedFlags["tables"] && suppliedFlags["schema"] {
 		return nil, fmt.Errorf("--tables and --schema cannot be combined")

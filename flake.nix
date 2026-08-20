@@ -31,6 +31,7 @@
             ldflags = [
               "-s"
               "-w"
+              "-X 'main.versionOverride=${packageVersion}'"
             ];
             meta = {
               description = "litefind - grep for SQLite dbs";
