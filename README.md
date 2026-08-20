@@ -33,12 +33,12 @@ litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
 ### Examples
 
 ```
-litefind timeout events.db                        regex search, all tables
-litefind -F 'error: 42' events.db                 literal string match
+litefind timeout events.db                         regex search, all tables
+litefind -F 'error: 42' events.db                  literal string match
 litefind -t events -c message timeout events.db    scope to a table + column
-litefind --fts 'NEAR(timeout retry, 3)' events.db FTS5 query syntax
-litefind tables events.db                         table inventory
-litefind schema events.db 'user*'                 DDL for tables matching a glob
+litefind --fts 'NEAR(timeout retry, 3)' events.db  FTS5 query syntax
+litefind tables events.db                          table inventory
+litefind schema events.db 'user*'                  DDL for tables matching a glob
 ```
 
 ### Search flags
@@ -123,7 +123,7 @@ FTS output is row-level, not column-span-level:
 
 ```
 table:rowid: snippet                        # text
-{table, rowid, snippet, rank}              # json
+{table, rowid, snippet, rank}               # json
 ```
 
 ### Read-only access

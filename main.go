@@ -22,18 +22,18 @@ usage:
   litefind PATTERN <db> [flags]               search (regex by default; -F for literal)
   litefind tables <db> [flags]                list tables: name, kind, row count, column count
   litefind schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
-  litefind quickstart                          print a short getting-started guide
+  litefind quickstart                         print a short getting-started guide
 
 Flags may appear anywhere on the command line, rg-style:
   litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
 
 examples:
-  litefind timeout events.db                        regex search, all tables
-  litefind -F 'error: 42' events.db                  literal string match
-  litefind -t events -c message timeout events.db    scope to a table + column
+  litefind timeout events.db                           regex search, all tables
+  litefind -F 'error: 42' events.db                    literal string match
+  litefind -t events -c message timeout events.db      scope to a table + column
   litefind --fts 'NEAR(timeout retry, 3)' events.db    FTS5 query syntax
-  litefind tables events.db                          table inventory
-  litefind schema events.db 'user*'                   DDL for tables matching a glob
+  litefind tables events.db                            table inventory
+  litefind schema events.db 'user*'                    DDL for tables matching a glob
 
 search flags:
   -t, --table GLOB           include only matching tables (repeatable)
@@ -54,17 +54,17 @@ search flags:
   --stats                    print a search statistics summary line
   --max-columns N            truncate displayed/snippet values to N chars
                               (default 200; 0 disables truncation)
-  --all-tables                include sqlite_* and FTS5 shadow tables
+  --all-tables               include sqlite_* and FTS5 shadow tables
                               (hidden by default)
-  --fts QUERY                  FTS5 match syntax (phrase "a b", NEAR(a b, N),
+  --fts QUERY                FTS5 match syntax (phrase "a b", NEAR(a b, N),
                               AND/OR/NOT, column filters); replaces PATTERN
                               — see fts below
 
 tables/schema flags:
-  --json                      JSON output instead of text
-  --no-counts                  (tables only) skip COUNT(*) row counts
-  --all-tables                 (tables only) include shadow tables
-  --immutable                  (all subcommands) see immutable/wal below
+  --json                     JSON output instead of text
+  --no-counts                (tables only) skip COUNT(*) row counts
+  --all-tables               (tables only) include shadow tables
+  --immutable                (all subcommands) see immutable/wal below
 
 regex engine:
   Default pattern syntax is Go's RE2 (regexp/syntax), not PCRE — near-parity
@@ -117,7 +117,7 @@ fts: searching existing FTS5 indexes:
   {table, rowid, snippet, rank} (no column, no spans).
 
 output:
-  text (default):  table.column:rowid: snippet
+  text (default):   table.column:rowid: snippet
                     (pk=(v1,v2) in place of rowid for WITHOUT ROWID tables
                     and rowid-fallback tables)
   json (--json):    {table, column, rowid|pk, value, spans}
