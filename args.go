@@ -12,17 +12,17 @@ type searchOpts struct {
 	fixed, ignoreCase, smartCase, wordRegexp                               bool
 	fts                                                                    string
 	listTables, count, row, jsonOut, stats, allTables, immutable, noCounts bool
-	maxCount                                                               int
-	maxColumns                                                             int
+	maxCount, maxColumns, limit                                            int
 }
 
 type invocation struct {
-	sub     string
-	pattern string
-	dbPath  string
-	glob    string
-	opts    searchOpts
-	skill   skillOpts
+	sub        string
+	pattern    string
+	hasPattern bool
+	dbPath     string
+	glob       string
+	opts       searchOpts
+	skill      skillOpts
 }
 
 type multiFlag []string
@@ -35,7 +35,7 @@ func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 var valueFlags = map[string]bool{
 	"t": true, "table": true, "T": true, "not-table": true,
 	"c": true, "column": true, "fts": true, "m": true, "max-count": true,
-	"max-columns": true,
+	"max-columns": true, "limit": true,
 }
 
 func reorderArgs(argv []string, valueFlags map[string]bool) []string {
@@ -90,6 +90,8 @@ var flagCanonical = map[string]string{
 	"all-tables":  "all-tables",
 	"immutable":   "immutable",
 	"no-counts":   "no-counts",
+	"freq":        "freq",
+	"limit":       "limit",
 	"tables":      "tables",
 	"schema":      "schema",
 	"V":           "V", "version": "V",
@@ -102,6 +104,11 @@ var allowedFlags = map[string]map[string]bool{
 		"w": true, "l": true, "m": true, "count": true, "row": true,
 		"json": true, "stats": true, "max-columns": true, "all-tables": true,
 		"immutable": true, "fts": true,
+	},
+	"freq": {
+		"freq": true, "t": true, "T": true, "c": true,
+		"F": true, "i": true, "S": true, "w": true,
+		"limit": true, "json": true, "all-tables": true, "immutable": true,
 	},
 	"tables": {
 		"tables": true, "json": true, "no-counts": true, "all-tables": true, "immutable": true,
@@ -154,9 +161,11 @@ func parseInvocation(argv []string) (*invocation, error) {
 	jsonOut := fs.Bool("json", false, "")
 	stats := fs.Bool("stats", false, "")
 	maxColumns := fs.Int("max-columns", 200, "")
+	limit := fs.Int("limit", 20, "")
 	allTables := fs.Bool("all-tables", false, "")
 	immutable := fs.Bool("immutable", false, "")
 	noCounts := fs.Bool("no-counts", false, "")
+	fs.Bool("freq", false, "")
 	fs.Bool("tables", false, "")
 	fs.Bool("schema", false, "")
 	fs.Bool("V", false, "")
@@ -179,8 +188,14 @@ func parseInvocation(argv []string) (*invocation, error) {
 		return inv, nil
 	}
 
-	if suppliedFlags["tables"] && suppliedFlags["schema"] {
-		return nil, fmt.Errorf("--tables and --schema cannot be combined")
+	var selectedModes []string
+	for _, name := range []string{"freq", "tables", "schema"} {
+		if suppliedFlags[name] {
+			selectedModes = append(selectedModes, "--"+name)
+		}
+	}
+	if len(selectedModes) > 1 {
+		return nil, fmt.Errorf("%s cannot be combined", strings.Join(selectedModes, " and "))
 	}
 
 	// Check if --fts was supplied and validate it's not empty.
@@ -194,11 +209,13 @@ func parseInvocation(argv []string) (*invocation, error) {
 		wordRegexp: *word, fts: *fts, listTables: *list, count: *count,
 		row: *row, jsonOut: *jsonOut, stats: *stats, allTables: *allTables,
 		immutable: *immutable, noCounts: *noCounts,
-		maxCount: *maxCount, maxColumns: *maxColumns,
+		maxCount: *maxCount, maxColumns: *maxColumns, limit: *limit,
 	}
 
 	pos := fs.Args()
 	switch {
+	case suppliedFlags["freq"]:
+		inv.sub = "freq"
 	case suppliedFlags["tables"]:
 		inv.sub = "tables"
 	case suppliedFlags["schema"]:
@@ -219,10 +236,37 @@ func parseInvocation(argv []string) (*invocation, error) {
 				return nil, fmt.Errorf("usage: litefind PATTERN <db> [flags]")
 			}
 			inv.pattern, inv.dbPath = pos[0], pos[1]
+			inv.hasPattern = true
 		}
 		// Validate search flags.
 		if err := validateFlagsForMode(suppliedFlags, "search", inv.opts.fts != ""); err != nil {
 			return nil, err
+		}
+	case "freq":
+		if len(pos) < 1 || len(pos) > 2 {
+			return nil, fmt.Errorf("usage: litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]")
+		}
+		if len(pos) == 2 {
+			inv.pattern, inv.dbPath = pos[0], pos[1]
+			inv.hasPattern = true
+		} else {
+			inv.dbPath = pos[0]
+		}
+		if err := validateFlagsForMode(suppliedFlags, "freq", false); err != nil {
+			return nil, err
+		}
+		if len(inv.opts.columns) == 0 {
+			return nil, fmt.Errorf("--freq requires exactly one column via -c")
+		}
+		if inv.opts.limit < 0 {
+			return nil, fmt.Errorf("--limit must be non-negative")
+		}
+		if !inv.hasPattern {
+			for _, name := range []string{"F", "i", "S", "w"} {
+				if suppliedFlags[name] {
+					return nil, fmt.Errorf("%s requires a frequency pattern", formatFlagName(name))
+				}
+			}
 		}
 	case "tables":
 		if len(pos) != 1 {

@@ -1,16 +1,18 @@
 ---
 name: litefind
-description: Use when searching or introspecting a SQLite database file (.db, .sqlite, .sqlite3, Chrome history, Core Data stores) — finding rows matching a pattern across tables, listing tables, or reading schema/DDL. ripgrep-style search where tables and columns replace paths and globs. Use instead of hand-writing SQL SELECT queries when you just need to locate data. Do not use for writing data, running arbitrary SQL, or modifying a database.
+description: Use when searching, aggregating, or introspecting a SQLite database file (.db, .sqlite, .sqlite3, Chrome history, Core Data stores) — finding rows matching a pattern, counting frequent column values, listing tables, or reading schema/DDL. ripgrep-style read-only access where tables and columns replace paths and globs. Use instead of hand-writing SQL SELECT queries for these operations. Do not use for writing data, running arbitrary SQL, or modifying a database.
 ---
 
 # litefind — ripgrep for SQLite databases
 
-`litefind` is a search and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs.
+`litefind` is a search, aggregation, and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs.
 
-Three modes:
+Four modes:
 
 ```text
 litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
+litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]
+                                               count distinct values
 litefind --tables <db> [flags]                list tables: name, kind, row count, column count
 litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
@@ -29,7 +31,8 @@ In an unfamiliar database, orient before searching:
 
 1. `litefind --tables <db>` — inventory. On a large database (roughly >1 GB, or if this takes more than a few seconds), use --no-counts; row counts require a full COUNT(*) per table.
 2. `litefind --schema <db> [table-glob]` — DDL and column detail for the tables you care about.
-3. `litefind <pattern> <db> [flags]` — now you know which tables/columns to scope.
+3. `litefind <pattern> <db> [flags]` — locate matching rows.
+4. `litefind --freq -t <table> -c <column> <db>` — when the question is which values are most common.
 
 Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing table names.
 
@@ -56,6 +59,18 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
 | `--fts QUERY` | FTS5 match syntax; replaces PATTERN |
 
+### Frequency flags
+
+| Flag | Meaning |
+|------|---------|
+| `--freq` | count distinct textual values in exactly one `-c` column |
+| `--limit N` | emit at most N values (default 20; 0 disables) |
+| `-t, -T, -c` | scope the single concrete target |
+| `-F, -i, -S, -w` | filter grouped values when PATTERN is supplied |
+| `--json` | emit `{table,column,value,count}` JSONL |
+| `--all-tables` | include shadow tables in target resolution |
+| `--immutable` | caller asserts the database cannot change |
+
 `--tables` and `--schema` do not accept the search flags above. `--tables` accepts `--json`, `--no-counts`, `--all-tables`, `--immutable`; `--schema` accepts `--json`, `--immutable`.
 
 Run `litefind --help` for the exhaustive, always-current flag reference.
@@ -66,6 +81,7 @@ Run `litefind --help` for the exhaustive, always-current flag reference.
 text:   table.column:rowid: snippet                 (pk=(v1,v2) in place of rowid for WITHOUT ROWID and rowid-fallback tables)
 json:   {table, column, rowid|pk, value, spans}     ("row" added when --row is set; --row is JSON-only)
 fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json; row added when --row is set)
+freq:   <escaped-value>\t<count>                    (text) / {table, column, value, count} (json)
 ```
 
 Exit codes (ripgrep's contract): `0` match found, `1` no match, `2` usage/runtime error.
@@ -91,6 +107,11 @@ litefind --count error events.db                  # match count per table
 litefind -l error events.db                       # just the table names with matches
 litefind -m 5 timeout events.db                   # first 5 matches per table
 
+# Frequency distribution
+litefind --freq -t events -c level events.db      # most common levels
+litefind --freq -i -t events -c message error events.db
+litefind --freq --json --limit 10 -t events -c level events.db
+
 # Full row for context (requires --json)
 litefind --json --row -t events timeout events.db # attach typed column values
 
@@ -106,7 +127,9 @@ litefind --fts '{body}: timeout' events.db        # FTS5 column-filter syntax
 
 **`-c` scopes columns, it is NOT count.** This is a deliberate divergence from rg, where `-c` means count. In litefind column scoping is the more common gesture, so `-c` means columns and count is long-only `--count`. The most common agent mistake is reaching for `-c` to count matches — use `--count`.
 
-**Exit 1 means "no matches," not failure.** Do not retry, do not vary flags, do not report an error. Report that nothing matched. Only exit 2 is an actual error.
+**Exit 1 means "no matches or results," not failure.** Do not retry, do not vary flags, do not report an error. Report that nothing matched or remained after filtering. Only exit 2 is an actual error.
+
+**`--freq` needs exactly one concrete column.** Use `-t` and `-c` narrowly enough that they resolve to one `table.column`. Values group by `CAST(column AS TEXT)` under binary collation, so integer `1` and text `"1"` share a group; NULL and BLOB values are excluded. Matcher flags require an optional frequency pattern, and `--limit` applies after that filter.
 
 **`--fts` is a different matching regime.** These flags are rejected with a usage error (exit 2) when combined with `--fts`: `-F -i -S -w -c --all-tables`. Case and tokenization are governed by the FTS5 index's own tokenizer, not by litefind flags; scope columns with FTS5's native syntax, e.g. `--fts '{body}: timeout'`. Compatible with `--fts`: `-t`/`-T`, `-l`, `-m`, `--count`, `--row`, `--json`, `--stats`, `--max-columns`, `--immutable`. FTS output is row-level (no column/spans); rows are rank-ordered per FTS index, not globally across indexes.
 

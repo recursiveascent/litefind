@@ -7,7 +7,7 @@ import (
 )
 
 func TestReorderArgs(t *testing.T) {
-	vf := map[string]bool{"t": true, "m": true, "fts": true, "max-columns": true}
+	vf := map[string]bool{"t": true, "c": true, "m": true, "fts": true, "max-columns": true, "limit": true}
 	cases := []struct {
 		name     string
 		in, want []string
@@ -24,6 +24,8 @@ func TestReorderArgs(t *testing.T) {
 			[]string{"--fts", "cats NEAR dogs", "a.db"}},
 		{"eq form needs no lookahead", []string{"a.db", "--max-columns=80"},
 			[]string{"--max-columns=80", "a.db"}},
+		{"frequency limit keeps its value", []string{"app.db", "--freq", "--limit", "7", "-c", "level"},
+			[]string{"--freq", "--limit", "7", "-c", "level", "app.db"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -152,5 +154,54 @@ func TestParseInvocationRejectsMultipleModes(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--tables") || !strings.Contains(err.Error(), "--schema") {
 		t.Errorf("error %q should name both mode flags", err)
+	}
+}
+
+func TestParseInvocationFreq(t *testing.T) {
+	inv, err := parseInvocation([]string{"--freq", "-t", "events", "-c", "level", "app.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.sub != "freq" || inv.dbPath != "app.db" || inv.hasPattern {
+		t.Fatalf("freq without pattern: %+v", inv)
+	}
+	if inv.opts.limit != 20 || !reflect.DeepEqual(inv.opts.tables, []string{"events"}) ||
+		!reflect.DeepEqual(inv.opts.columns, []string{"level"}) {
+		t.Errorf("freq opts = %+v", inv.opts)
+	}
+
+	inv, err = parseInvocation([]string{"--freq", "-c", "level", "--limit", "0", "", "app.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.sub != "freq" || !inv.hasPattern || inv.pattern != "" || inv.dbPath != "app.db" || inv.opts.limit != 0 {
+		t.Fatalf("freq with empty pattern: %+v", inv)
+	}
+}
+
+func TestParseInvocationFreqValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"missing column", []string{"--freq", "app.db"}, "exactly one column"},
+		{"missing db", []string{"--freq", "-c", "level"}, "usage"},
+		{"too many positionals", []string{"--freq", "-c", "level", "a", "b", "c"}, "usage"},
+		{"negative limit", []string{"--freq", "-c", "level", "--limit", "-1", "app.db"}, "non-negative"},
+		{"matcher without pattern", []string{"--freq", "-c", "level", "-i", "app.db"}, "requires a frequency pattern"},
+		{"search output flag", []string{"--freq", "-c", "level", "--row", "app.db"}, "--row"},
+		{"search count flag", []string{"--freq", "-c", "level", "-m", "2", "app.db"}, "-m"},
+		{"truncation flag", []string{"--freq", "-c", "level", "--max-columns", "10", "app.db"}, "--max-columns"},
+		{"limit outside freq", []string{"needle", "app.db", "--limit", "2"}, "--limit"},
+		{"freq and tables", []string{"--freq", "--tables", "-c", "level", "app.db"}, "cannot be combined"},
+		{"freq and schema", []string{"--freq", "--schema", "-c", "level", "app.db"}, "cannot be combined"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseInvocation(tc.argv)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("parseInvocation(%v) error = %v, want substring %q", tc.argv, err, tc.want)
+			}
+		})
 	}
 }

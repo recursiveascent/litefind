@@ -3,8 +3,8 @@
 [![CI](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml/badge.svg)](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml)
 
 ripgrep for SQLite databases. Read-only regex, fixed-string, and FTS5 search,
-plus schema introspection. Tables and columns replace paths and globs as the
-scoping vocabulary.
+frequency distribution, plus schema introspection. Tables and columns replace
+paths and globs as the scoping vocabulary.
 
 ## Install
 
@@ -109,6 +109,8 @@ This writes to `~/.agents/skills/litefind/SKILL.md`. Use `--target project` for
 
 ```text
 litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
+litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]
+                                               count distinct values
 litefind --tables <db> [flags]                list tables: name, kind, row count, column count
 litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
@@ -127,6 +129,8 @@ litefind --json timeout db.sqlite  ==  litefind timeout db.sqlite --json
 litefind timeout events.db                         regex search, all tables
 litefind -F 'error: 42' events.db                  literal string match
 litefind -t events -c message timeout events.db    scope to a table + column
+litefind --freq -t events -c level events.db         most common event levels
+litefind --freq -i -t events -c message error events.db
 litefind --fts 'NEAR(timeout retry, 3)' events.db  FTS5 query syntax
 litefind --tables events.db                        table inventory
 litefind --schema events.db 'user*'                DDL for tables matching a glob
@@ -155,6 +159,20 @@ litefind --schema events.db 'user*'                DDL for tables matching a glo
 
 In ripgrep, `-c` means count. In litefind, `-c` scopes columns — the more common
 gesture here — and count is long-only `--count`.
+
+### Frequency distribution
+
+`--freq` requires `-c` to resolve to exactly one concrete column. Values are
+counted using SQLite's textual representation (`CAST(column AS TEXT)`), so
+integer `1` and text `"1"` share a group; NULL and BLOB values are excluded.
+Results sort by count descending, then value ascending under binary collation.
+
+`--limit N` defaults to 20 and `--limit 0` disables the limit. An optional
+pattern filters grouped values with the same regex, fixed-string, case, and word
+semantics as ordinary search. The limit applies after filtering.
+
+Text output is `<escaped-value>\t<count>`. `--json` emits JSONL objects with
+`table`, `column`, `value`, and `count`.
 
 ### Regex engine
 
@@ -217,6 +235,13 @@ table:rowid: snippet                        # text
 {table, rowid, snippet, rank}               # json
 ```
 
+Frequency output:
+
+```
+<escaped-value>\t<count>                     # text
+{table, column, value, count}               # json
+```
+
 ### Read-only access
 
 Databases are opened read-only (`mode=ro`). A live WAL database needs readable
@@ -234,6 +259,6 @@ ripgrep's contract:
 
 | Code | Meaning |
 |------|---------|
-| 0 | at least one match found |
-| 1 | no matches found |
+| 0 | at least one match or result found |
+| 1 | no matches or results found |
 | 2 | usage or runtime error |

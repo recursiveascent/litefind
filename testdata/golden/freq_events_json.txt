@@ -1,0 +1,3 @@
+{"table":"events","column":"level","value":"error","count":2}
+{"table":"events","column":"level","value":"info","count":1}
+{"table":"events","column":"level","value":"warn","count":1}

@@ -51,6 +51,8 @@ func TestGolden(t *testing.T) {
 		{"tables.txt", []string{"--tables", path}, exitMatch, ""},
 		{"schema_events.txt", []string{"--schema", path, "events"}, exitMatch, ""},
 		{"fts_docs.txt", []string{"--fts", "timeout", path, "-t", "docs"}, exitMatch, ""},
+		{"freq_events.txt", []string{"--freq", "-t", "events", "-c", "level", path}, exitMatch, ""},
+		{"freq_events_json.txt", []string{"--freq", "--json", "-t", "events", "-c", "level", path}, exitMatch, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

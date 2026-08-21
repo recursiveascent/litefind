@@ -1,10 +1,10 @@
 # litefind design
 
-litefind is a read-only search and introspection tool for SQLite databases,
-modeled on ripgrep's command interface and ergonomics. Where ripgrep scopes
-search by file path and glob, litefind scopes by table and column. This
-document describes the high-level architecture; the source files are the
-ground truth.
+litefind is a read-only search, aggregation, and introspection tool for SQLite
+databases, modeled on ripgrep's command interface and ergonomics. Where
+ripgrep scopes search by file path and glob, litefind scopes by table and
+column. This document describes the high-level architecture; the source
+files are the ground truth.
 
 ## Scope and contract
 
@@ -18,17 +18,23 @@ Invocation modes:
   Both support table globs (`-t`/`-T`); column globs (`-c`) apply only to
   regex/fixed search — FTS5 rejects `-c` and scopes columns with its own
   query syntax (e.g. `--fts '{col}: query'`).
+- **`--freq`** — frequency distribution for exactly one scoped column. Values
+  use `CAST(c AS TEXT)`, excluding NULL and BLOB storage classes, and group
+  under binary collation. An optional ordinary matcher filters grouped values
+  before `--limit` is applied.
 - **`--tables`** — table inventory: name, kind, row count, column count.
 - **`--schema`** — DDL plus structured column, index, and foreign-key detail.
 
 The database is opened **read-only** (`mode=ro`). litefind never writes to a
 database, never creates an FTS5 index, and never assumes immutability (the
 `--immutable` flag is an explicit, caller-asserted opt-in). Exit codes mirror
-ripgrep for **search** and **`--schema`**: 0 = match found, 1 = no match,
-2 = usage or runtime error. **`--tables`** returns 0 on success and 2 on error.
+ripgrep for **search**, **frequency**, and **`--schema`**: 0 = result found,
+1 = no result, 2 = usage or runtime error. **`--tables`** returns 0 on
+success and 2 on error.
 `--help` prints to stdout and returns 0 on a valid invocation; its `fmt.Fprint`
 result is not checked, so a stdout write failure is not propagated as an error
-(unlike search, tables, and schema, which check every write). `-h`/`--help`
+(unlike search, frequency, tables, and schema, which check every write).
+`-h`/`--help`
 short-circuits all remaining parsing and semantic validation (it prints usage
 and returns 0) once reached; the only thing that takes precedence is a parsing
 error encountered *before* it, such as an unknown flag. Extra positional args
@@ -49,6 +55,7 @@ otherwise.
 | `args.go`  | Argument reordering, flag parsing, mode and flag validation.       |
 | `db.go`    | Read-only open + diagnostics, catalog, DDL tokenizer, identity resolution. |
 | `search.go`| Regex/fixed search: matching, batching, streaming, scoping, command. |
+| `freq.go`  | Frequency target resolution, grouping, filtering, and output.       |
 | `fts.go`   | FTS5 search: target resolution, query, setup-SQL generation, command. |
 | `introspect.go` | `--tables` and `--schema` modes.                              |
 | `output.go`| Text/JSON rendering, truncation, ANSI highlighting.                 |
@@ -56,10 +63,10 @@ otherwise.
 ## Control flow
 
 `run` (main.go) parses the invocation, opens the database read-only, and
-dispatches to search, tables, or schema according to the parsed mode. The
-command signatures differ: `cmdSearch`/`cmdSearchFTS` take the full
-`*invocation`; `cmdTables` takes just `searchOpts`; `cmdSchema` takes the glob
-and the JSON flag. All receive the `*database` and `stdout`/`stderr` writers
+dispatches to search, frequency, tables, or schema according to the parsed
+mode. `cmdSearch`, `cmdSearchFTS`, and `cmdFreq` take the full `*invocation`;
+`cmdTables` takes just `searchOpts`; `cmdSchema` takes the glob and the JSON
+flag. All receive the `*database` and `stdout`/`stderr` writers
 and return an exit code. Opening the database happens after parsing, so parse
 errors never touch the file.
 
@@ -72,10 +79,12 @@ caller supplied an explicit `--`, it is moved ahead of the positionals so the
 stdlib `flag` parser treats everything after it as positional; `reorderArgs`
 only relocates a supplied `--`, it never inserts one, so a leading-dash
 pattern without an explicit `--` is still parsed as a flag (use `--` to pass
-such patterns). After parsing, `parseInvocation` selects tables or schema only
-when the corresponding `--tables` or `--schema` flag was supplied; supplying
-both is a usage error. Otherwise every positional string is handled by search,
-including the literal patterns `tables`, `schema`, and `quickstart`.
+such patterns). After parsing, `parseInvocation` selects frequency, tables, or
+schema only when the corresponding `--freq`, `--tables`, or `--schema` flag was
+supplied; combining mode selectors is a usage error. Frequency accepts either
+`<db>` or `<pattern> <db>`, records explicit pattern presence separately from
+its value, and requires `-c`. Otherwise every positional string is handled by
+search, including the literal patterns `tables`, `schema`, and `quickstart`.
 
 Flag validation is layered: `checkFTSFlagCompat` rejects regex-oriented flags
 combined with `--fts`; `validateFlagsForMode` enforces a per-mode
@@ -193,6 +202,26 @@ merged in lockstep with the match cursors on the shared `ORDER BY`.
 the first failure (e.g. broken pipe) is treated like a scan error → stderr,
 exit 2.
 
+#### Frequency distribution
+
+`cmdFreq` validates globs, reuses `scopeTables` and `resolveColsForTable`, and
+requires their expansion to produce exactly one concrete table-column pair.
+It ignores row identity, so tables that regex search cannot address safely can
+still be aggregated.
+
+SQLite groups `CAST(column AS TEXT)` values after excluding `typeof` values
+`null` and `blob`. Both grouping and tie-breaking use `BINARY` collation, so a
+column's declared collation cannot merge distinct textual values. Results sort
+by count descending and value ascending. Without a pattern, a positive
+`--limit` is part of the SQL query. With a pattern, grouped rows stream in that
+same order through `buildMatcher`, and litefind stops after the requested
+number of matching groups, making the limit apply after filtering.
+
+Text output is `<escaped-value>\t<count>` with control characters single-lined
+through the existing renderer. JSONL output contains `table`, `column`,
+`value`, and `count`. Query, scan, iteration, close, and output failures return
+exit 2; no emitted groups returns exit 1.
+
 #### FTS5 search
 
 `cmdSearchFTS` resolves FTS5 targets, queries each in catalog order
@@ -231,9 +260,9 @@ predicates, DESC keys, COLLATE clauses, and expression keys.
 
 ### Output (output.go)
 
-A `printer` renders matches as text lines or JSONL objects. In text mode:
-values are single-lined (`\n`→`\n` etc.), truncated to a `--max-columns`-rune
-window centered on the first match span (with ellipses), and highlighted with
+A `printer` renders regex/fixed and FTS matches as text lines or JSONL objects.
+In text mode: values are single-lined (`\n`→`\n` etc.), truncated to a
+`--max-columns`-rune window centered on the first match span (with ellipses), and highlighted with
 ANSI when stdout is a terminal. JSON output is always the full, unhighlighted
 value. The window is computed in **escaped-rune** coordinates so a multibyte
 character costs one slot and an expanded control-character escape (`\n`,
@@ -245,6 +274,10 @@ FTS snippets carry `\x01`/`\x02` marker bytes around matched terms.
 `extractMarkerSpans` strips these into ordinary byte-offset spans over the
 marker-free text, so an FTS snippet flows through the same
 truncation/highlighting pipeline as a regex match value.
+
+Frequency text output calls `renderUnbounded` without spans or color to reuse
+control-character escaping without truncation. Its JSONL path uses a dedicated
+anonymous record containing the resolved target and aggregate count.
 
 ## Key design principles
 
