@@ -546,6 +546,8 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		tsvOut:     o.tsvOut,
 		color:      searchColorEnabled(stdout, o.jsonOut || o.tsvOut),
 		maxColumns: o.maxColumns,
+		headSet:    o.headSet,
+		headLines:  o.headLines,
 	}
 
 	totalMatches, matchedTables := 0, 0

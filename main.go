@@ -99,6 +99,8 @@ search flags:
   --stats                    print a search statistics summary line
   --max-columns N            truncate displayed/snippet values to N chars
                               (default 200; 0 disables truncation)
+  --head N                   preview the first N lines in text/JSON output
+                              (0 disables; incompatible with --max-columns/--tsv)
   --all-tables               include sqlite_* and FTS5 shadow tables
                               (hidden by default)
   --fts QUERY                FTS5 match syntax (phrase "a b", NEAR(a b, N),
@@ -171,7 +173,7 @@ fts: searching existing FTS5 indexes:
   Case and tokenization are governed by the FTS5 index's own tokenizer;
   scope columns with FTS5's native syntax instead, e.g. --fts '{body}: timeout'.
   Compatible with --fts: -t/-T, -l, -m, --count, --row, --json, --tsv,
-  --stats, --max-columns (truncates snippets instead of match values).
+  --stats, --max-columns, --head (except with --tsv), --immutable.
 
   FTS output differs from regex/fixed search: matches are row-level, not
   column-span-level — text: "table:rowid: snippet"; JSON:
@@ -182,7 +184,7 @@ output:
                     (pk=(v1,v2) in place of rowid for WITHOUT ROWID tables
                     and rowid-fallback tables)
   json (--json):    {table, column, rowid|pk, value, spans}
-                    ("row" added when --row is set)
+                    ("row" added by --row; "truncated_lines" by --head)
   tsv (--tsv):      table<TAB>column<TAB>identity<TAB>value
                     (--row appends one scoped table's columns in schema order)
   fts text:         table:rowid: snippet

@@ -242,3 +242,46 @@ func TestParseInvocationFreqValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestParseInvocationHead(t *testing.T) {
+	for _, argv := range [][]string{
+		{"needle", "app.db", "--head", "5"},
+		{"--head=5", "needle", "app.db"},
+		{"--fts", "needle", "--head", "5", "app.db"},
+	} {
+		inv, err := parseInvocation(argv)
+		if err != nil {
+			t.Fatalf("parseInvocation(%v): %v", argv, err)
+		}
+		if !inv.opts.headSet || inv.opts.headLines != 5 {
+			t.Fatalf("parseInvocation(%v) opts = %+v, want explicit head 5", argv, inv.opts)
+		}
+	}
+
+	inv, err := parseInvocation([]string{"needle", "app.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.opts.headSet || inv.opts.headLines != 0 || inv.opts.maxColumns != 200 {
+		t.Fatalf("default opts = %+v", inv.opts)
+	}
+}
+
+func TestParseInvocationHeadValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"negative", []string{"needle", "app.db", "--head", "-1"}, "non-negative"},
+		{"explicit truncation conflict", []string{"needle", "app.db", "--head", "0", "--max-columns", "0"}, "cannot be combined"},
+		{"tsv conflict", []string{"needle", "app.db", "--head", "1", "--tsv"}, "--tsv"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseInvocation(tc.argv)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("parseInvocation(%v) error = %v, want substring %q", tc.argv, err, tc.want)
+			}
+		})
+	}
+}

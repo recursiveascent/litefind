@@ -12,7 +12,8 @@ type searchOpts struct {
 	fixed, ignoreCase, smartCase, wordRegexp                                       bool
 	fts                                                                            string
 	listTables, count, row, jsonOut, tsvOut, stats, allTables, immutable, noCounts bool
-	maxCount, maxColumns, limit                                                    int
+	headSet                                                                        bool
+	maxCount, maxColumns, headLines, limit                                         int
 }
 
 type invocation struct {
@@ -35,7 +36,7 @@ func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 var valueFlags = map[string]bool{
 	"t": true, "table": true, "T": true, "not-table": true,
 	"c": true, "column": true, "fts": true, "m": true, "max-count": true,
-	"max-columns": true, "limit": true,
+	"max-columns": true, "head": true, "limit": true,
 }
 
 func reorderArgs(argv []string, valueFlags map[string]bool) []string {
@@ -88,6 +89,7 @@ var flagCanonical = map[string]string{
 	"tsv":         "tsv",
 	"stats":       "stats",
 	"max-columns": "max-columns",
+	"head":        "head",
 	"all-tables":  "all-tables",
 	"immutable":   "immutable",
 	"no-counts":   "no-counts",
@@ -103,7 +105,7 @@ var allowedFlags = map[string]map[string]bool{
 	"search": {
 		"t": true, "T": true, "c": true, "F": true, "i": true, "S": true,
 		"w": true, "l": true, "m": true, "count": true, "row": true,
-		"json": true, "tsv": true, "stats": true, "max-columns": true, "all-tables": true,
+		"json": true, "tsv": true, "stats": true, "max-columns": true, "head": true, "all-tables": true,
 		"immutable": true, "fts": true,
 	},
 	"freq": {
@@ -163,6 +165,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 	tsvOut := fs.Bool("tsv", false, "")
 	stats := fs.Bool("stats", false, "")
 	maxColumns := fs.Int("max-columns", 200, "")
+	headLines := fs.Int("head", 0, "")
 	limit := fs.Int("limit", 20, "")
 	allTables := fs.Bool("all-tables", false, "")
 	immutable := fs.Bool("immutable", false, "")
@@ -210,8 +213,15 @@ func parseInvocation(argv []string) (*invocation, error) {
 		fixed: *fixed, ignoreCase: *ignoreCase, smartCase: *smartCase,
 		wordRegexp: *word, fts: *fts, listTables: *list, count: *count,
 		row: *row, jsonOut: *jsonOut, tsvOut: *tsvOut, stats: *stats, allTables: *allTables,
-		immutable: *immutable, noCounts: *noCounts,
-		maxCount: *maxCount, maxColumns: *maxColumns, limit: *limit,
+		immutable: *immutable, noCounts: *noCounts, headSet: suppliedFlags["head"],
+		maxCount: *maxCount, maxColumns: *maxColumns, headLines: *headLines, limit: *limit,
+	}
+
+	if inv.opts.headSet && inv.opts.headLines < 0 {
+		return nil, fmt.Errorf("--head must be non-negative")
+	}
+	if inv.opts.headSet && suppliedFlags["max-columns"] {
+		return nil, fmt.Errorf("--head and --max-columns cannot be combined")
 	}
 
 	pos := fs.Args()
@@ -310,7 +320,7 @@ func validateFlagsForMode(supplied map[string]bool, mode string, isFTS bool) err
 		allowed = map[string]bool{
 			"fts": true, "t": true, "T": true, "l": true, "m": true,
 			"count": true, "row": true, "json": true, "tsv": true, "stats": true,
-			"max-columns": true, "immutable": true,
+			"max-columns": true, "head": true, "immutable": true,
 		}
 	}
 
@@ -338,6 +348,9 @@ func formatFlagName(canonical string) string {
 func validateTSVCompat(o searchOpts) error {
 	if !o.tsvOut {
 		return nil
+	}
+	if o.headSet {
+		return fmt.Errorf("--head and --tsv cannot be combined")
 	}
 	if o.jsonOut {
 		return fmt.Errorf("--json and --tsv cannot be combined")

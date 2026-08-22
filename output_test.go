@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -66,6 +67,113 @@ func TestRenderValueEscapesNewlines(t *testing.T) {
 	got := p.renderValue("line one\nline two", nil)
 	if strings.ContainsRune(got, '\n') || !strings.Contains(got, `\n`) {
 		t.Errorf("newlines must be escaped: %q", got)
+	}
+}
+
+func TestHeadPreview(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		value   string
+		lines   int
+		want    string
+		omitted int
+	}{
+		{"empty", "", 1, "", 0},
+		{"single long line", strings.Repeat("x", 300), 1, strings.Repeat("x", 300), 0},
+		{"shorter", "one\ntwo", 3, "one\ntwo", 0},
+		{"exact terminated", "one\ntwo\n", 2, "one\ntwo\n", 0},
+		{"trailing newline", "one\ntwo\nthree\n", 2, "one\ntwo\n", 1},
+		{"blank omitted line", "one\n\n", 1, "one\n", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, omitted := headPreview(tc.value, tc.lines)
+			if got != tc.want || omitted != tc.omitted {
+				t.Fatalf("headPreview(%q, %d) = (%q, %d), want (%q, %d)", tc.value, tc.lines, got, omitted, tc.want, tc.omitted)
+			}
+		})
+	}
+}
+
+func TestPrintMatchHeadText(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, headSet: true, headLines: 2}
+	m := match{table: "events", column: "message", rowid: 1, value: "one\ntwo hit\nthree\nfour", spans: [][2]int{{8, 11}}}
+	if err := p.printMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	want := "events.message:1: one\ntwo hit\n[... 2 more lines]\n"
+	if got := b.String(); got != want {
+		t.Fatalf("head text = %q, want %q", got, want)
+	}
+}
+
+func TestPrintMatchHeadTextClipsHighlight(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, color: true, headSet: true, headLines: 1}
+	m := match{table: "events", column: "message", rowid: 1, value: "éone\nhit", spans: [][2]int{{2, 7}}}
+	if err := p.printMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	if strings.Count(got, "\x1b[1;31m") != 1 || strings.Count(got, "\x1b[0m") != 1 {
+		t.Fatalf("head highlight must be balanced: %q", got)
+	}
+	if !strings.Contains(got, "é\x1b[1;31mone\n\x1b[0m[... 1 more lines]\n") {
+		t.Fatalf("head highlight clipped incorrectly: %q", got)
+	}
+}
+
+func TestPrintMatchHeadZeroIsUnbounded(t *testing.T) {
+	var b bytes.Buffer
+	value := strings.Repeat("x", 300) + "\nsecond"
+	p := &printer{w: &b, maxColumns: 200, headSet: true, headLines: 0}
+	if err := p.printMatch(match{table: "events", column: "message", rowid: 1, value: value}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); got != "events.message:1: "+value+"\n" {
+		t.Fatalf("head zero truncated or escaped value: %q", got)
+	}
+}
+
+func TestPrintMatchHeadJSON(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, jsonOut: true, headSet: true, headLines: 1}
+	m := match{table: "events", column: "message", rowid: 1, value: "one\nhit\nrest", spans: [][2]int{{2, 6}, {8, 8}}}
+	if err := p.printMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	var obj struct {
+		Value          string   `json:"value"`
+		Spans          [][2]int `json:"spans"`
+		TruncatedLines int      `json:"truncated_lines"`
+	}
+	if err := json.Unmarshal(b.Bytes(), &obj); err != nil {
+		t.Fatal(err)
+	}
+	if obj.Value != "one\n" || obj.TruncatedLines != 2 {
+		t.Fatalf("head JSON = %+v", obj)
+	}
+	wantSpans := [][2]int{{2, 4}}
+	if !reflect.DeepEqual(obj.Spans, wantSpans) {
+		t.Fatalf("spans = %v, want %v", obj.Spans, wantSpans)
+	}
+}
+
+func TestPrintFTSMatchHeadJSON(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, jsonOut: true, headSet: true, headLines: 1}
+	if err := p.printFTSMatch(ftsMatch{table: "notes", rowid: 2, snippet: "one \x01hit\x02\ntwo"}); err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(b.Bytes(), &obj); err != nil {
+		t.Fatal(err)
+	}
+	if obj["snippet"] != "one hit\n" || obj["truncated_lines"] != float64(1) {
+		t.Fatalf("fts head JSON = %v", obj)
+	}
+	if _, ok := obj["spans"]; ok {
+		t.Fatalf("fts JSON must not expose spans: %v", obj)
 	}
 }
 

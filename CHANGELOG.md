@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `--head N` line-based previews for regular and FTS search in text and
+  JSON output, including omitted-line counts.
 - Added `--tsv` output for search, FTS, frequency, `-l`, and `--count`, with
   escaped one-record-per-line values and schema-ordered `--row` fields.
 

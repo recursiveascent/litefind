@@ -260,15 +260,23 @@ predicates, DESC keys, COLLATE clauses, and expression keys.
 
 ### Output (output.go)
 
-A `printer` renders regex/fixed and FTS matches as text lines or JSONL objects.
-In text mode: values are single-lined (`\n`→`\n` etc.), truncated to a
-`--max-columns`-rune window centered on the first match span (with ellipses), and highlighted with
-ANSI when stdout is a terminal. JSON output is always the full, unhighlighted
-value. The window is computed in **escaped-rune** coordinates so a multibyte
+A `printer` renders regex/fixed and FTS matches as text or JSONL objects.
+Default text mode single-lines values (`\n`→`\n` etc.), truncates to a
+`--max-columns`-rune window centered on the first match span (with ellipses), and highlights with
+ANSI when stdout is a terminal. JSON output normally preserves the full,
+unhighlighted value. The window is computed in **escaped-rune** coordinates so a multibyte
 character costs one slot and an expanded control-character escape (`\n`,
 `\r`, `\t`) costs two; the bounded fetch
 region is centered on the span's escaped-rune midpoint, not a byte
 midpoint, so uneven escape-width distributions don't skew the window.
+
+When `--head N` is explicit, the printer instead keeps the first N logical
+lines (`0` means unbounded), preserves their newline separators in text output,
+and appends `[... N more lines]` when content was omitted. JSON truncates the
+`value` or FTS `snippet` to the same raw prefix and adds `truncated_lines` only
+when nonzero. Regular-search spans are clipped to the retained byte range.
+`--head` is mutually exclusive with `--max-columns` and with TSV, whose contract
+requires full values and one physical record per match.
 
 FTS snippets carry `\x01`/`\x02` marker bytes around matched terms.
 `extractMarkerSpans` strips these into ordinary byte-offset spans over the

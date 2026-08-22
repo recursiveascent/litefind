@@ -57,6 +57,7 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `--tsv` | tab-separated output for Unix pipelines |
 | `--stats` | print a search statistics summary line |
 | `--max-columns N` | truncate displayed values to N chars in text output (default 200; 0 disables; JSON values are not truncated) |
+| `--head N` | preview the first N lines in text/JSON output (0 disables; incompatible with `--max-columns` and `--tsv`) |
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
 | `--fts QUERY` | FTS5 match syntax; replaces PATTERN |
 
@@ -81,7 +82,7 @@ Run `litefind --help` for the exhaustive, always-current flag reference.
 
 ```
 text:   table.column:rowid: snippet                 (pk=(v1,v2) in place of rowid for WITHOUT ROWID and rowid-fallback tables)
-json:   {table, column, rowid|pk, value, spans}     ("row" added when --row is set)
+json:   {table, column, rowid|pk, value, spans}     (`row` added by `--row`; `truncated_lines` added when `--head` omits lines)
 tsv:    table<TAB>column<TAB>identity<TAB>value     (--row appends one scoped table's values in schema order)
 fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json) / table<TAB>rowid<TAB>snippet (tsv)
 freq:   <escaped-value>\t<count>                    (text) / {table, column, value, count} (json) / table<TAB>column<TAB>value<TAB>count (tsv)
@@ -120,8 +121,9 @@ litefind --freq -t events -c level events.db      # most common levels
 litefind --freq -i -t events -c message error events.db
 litefind --freq --json --limit 10 -t events -c level events.db
 
-# Full row for context
+# Full row and previews for context
 litefind --json --row -t events timeout events.db # typed JSON column values
+litefind --head 5 -t events timeout events.db     # first five lines per match
 litefind --tsv --row -t events timeout events.db  # schema-ordered TSV values
 
 # TSV for Unix pipelines
@@ -143,7 +145,7 @@ litefind --fts '{body}: timeout' events.db        # FTS5 column-filter syntax
 
 **`--freq` needs exactly one concrete column.** Use `-t` and `-c` narrowly enough that they resolve to one `table.column`. Values group by `CAST(column AS TEXT)` under binary collation, so integer `1` and text `"1"` share a group; NULL and BLOB values are excluded. Matcher flags require an optional frequency pattern, and `--limit` applies after that filter.
 
-**`--fts` is a different matching regime.** These flags are rejected with a usage error (exit 2) when combined with `--fts`: `-F -i -S -w -c --all-tables`. Case and tokenization are governed by the FTS5 index's own tokenizer, not by litefind flags; scope columns with FTS5's native syntax, e.g. `--fts '{body}: timeout'`. Compatible with `--fts`: `-t`/`-T`, `-l`, `-m`, `--count`, `--row`, `--json`, `--stats`, `--max-columns`, `--immutable`. FTS output is row-level (no column/spans); rows are rank-ordered per FTS index, not globally across indexes.
+**`--fts` is a different matching regime.** These flags are rejected with a usage error (exit 2) when combined with `--fts`: `-F -i -S -w -c --all-tables`. Case and tokenization are governed by the FTS5 index's own tokenizer, not by litefind flags; scope columns with FTS5's native syntax, e.g. `--fts '{body}: timeout'`. Compatible with `--fts`: `-t`/`-T`, `-l`, `-m`, `--count`, `--row`, `--json`, `--stats`, `--max-columns`, `--head`, `--immutable`; `--head` remains incompatible with `--tsv`. FTS output is row-level (no column/spans); rows are rank-ordered per FTS index, not globally across indexes.
 
 **FTS requires an index that already exists.** `--fts` queries existing FTS5 indexes; it never builds one. If you scope `-t <table>` that has no covering FTS5 index, litefind exits 2 with complete, runnable `CREATE VIRTUAL TABLE` + trigger SQL to set one up. That SQL is a write to the user's database — do not run it without explicit approval. Present the SQL to your human partner and let them decide; until then, continue with ordinary read-only regex/literal search. Exceptions: a table with no stable row identity or no indexable TEXT-affinity columns gets an explanatory diagnostic instead of setup SQL (no synchronized index can be generated for it), and a `WITHOUT ROWID` table (or a rowid table with every rowid alias shadowed and no rowid-aliasing `INTEGER PRIMARY KEY`) gets standalone-FTS setup SQL (rerun scoping the new index directly, e.g. `-t <table>_fts`). litefind itself never writes to the database.
 

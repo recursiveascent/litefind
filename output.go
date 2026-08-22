@@ -10,16 +10,16 @@ import (
 	"unicode/utf8"
 )
 
-// printer renders matches to w, either as human-readable text lines or as
-// JSONL objects. color and maxColumns only affect text mode: JSON output is
-// always the full, unhighlighted, untruncated value (markers stripped for
-// FTS snippets, since \x01/\x02 have no meaning outside a terminal).
+// printer renders matches to w. maxColumns is the default text-only
+// truncation; an explicitly set headLines previews raw lines in text and JSON.
 type printer struct {
 	w          io.Writer
 	jsonOut    bool
 	tsvOut     bool
 	color      bool // ANSI highlight; true only for tty text mode
 	maxColumns int  // 0 = no truncation, else a rune budget
+	headSet    bool
+	headLines  int
 }
 
 // identityString renders rowid or pk=(v1,v2) per the output contract.
@@ -123,6 +123,51 @@ func writeTSVRecord(w io.Writer, fields ...string) error {
 	return err
 }
 
+func headPreview(value string, lines int) (string, int) {
+	if lines <= 0 || value == "" {
+		return value, 0
+	}
+	cut := 0
+	for range lines {
+		i := strings.IndexByte(value[cut:], '\n')
+		if i < 0 {
+			return value, 0
+		}
+		cut += i + 1
+	}
+	if cut == len(value) {
+		return value, 0
+	}
+	rest := value[cut:]
+	omitted := strings.Count(rest, "\n")
+	if !strings.HasSuffix(rest, "\n") {
+		omitted++
+	}
+	return value[:cut], omitted
+}
+
+func clipSpans(spans [][2]int, limit int) [][2]int {
+	clipped := make([][2]int, 0, len(spans))
+	for _, span := range spans {
+		start, end := span[0], span[1]
+		if start == end {
+			if start >= 0 && start <= limit {
+				clipped = append(clipped, span)
+			}
+			continue
+		}
+		if end <= 0 || start >= limit {
+			continue
+		}
+		start = max(start, 0)
+		end = min(end, limit)
+		if start < end {
+			clipped = append(clipped, [2]int{start, end})
+		}
+	}
+	return clipped
+}
+
 // renderValue single-lines value (\n -> \\n), truncates to a window of
 // maxColumns runes centered on the first span (ellipsis on trimmed ends),
 // and highlights spans with ANSI when color is on. Returns the rendered
@@ -144,6 +189,14 @@ func (p *printer) renderValue(value string, spans [][2]int) string {
 // rune-coordinate translation, since there's no window to position — only
 // a builder sized to the (unavoidable) output and a cursor into spans.
 func (p *printer) renderUnbounded(value string, spans [][2]int) string {
+	return p.renderFull(value, spans, false)
+}
+
+func (p *printer) renderHeadValue(value string, spans [][2]int) string {
+	return p.renderFull(value, spans, true)
+}
+
+func (p *printer) renderFull(value string, spans [][2]int, multiline bool) string {
 	var b strings.Builder
 	cur := 0
 	inSpan := false
@@ -182,7 +235,9 @@ func (p *printer) renderUnbounded(value string, spans [][2]int) string {
 			break
 		}
 		r, size := utf8.DecodeRuneInString(value[i:])
-		if esc := escapeRune(r); esc != "" {
+		if multiline && r == '\n' {
+			b.WriteByte('\n')
+		} else if esc := escapeRune(r); esc != "" {
 			b.WriteString(esc)
 		} else {
 			b.WriteRune(r)
@@ -301,6 +356,20 @@ func (p *printer) renderWindowed(value string, spans [][2]int) string {
 	return addEllipses(out, trimmedStart, trimmedEnd)
 }
 
+func (p *printer) writeHeadMatch(prefix, value string, spans [][2]int) error {
+	value, omitted := headPreview(value, p.headLines)
+	spans = clipSpans(spans, len(value))
+	line := prefix + p.renderHeadValue(value, spans)
+	if omitted > 0 {
+		line += fmt.Sprintf("[... %d more lines]", omitted)
+	}
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	_, err := io.WriteString(p.w, line)
+	return err
+}
+
 // printMatch emits either "table.column:identity: rendered" or the JSONL
 // object {table, column, rowid|pk, value, spans[, row]}.
 func (p *printer) printMatch(m match) error {
@@ -319,17 +388,26 @@ func (p *printer) printMatch(m match) error {
 		}
 		return writeTSVRecord(p.w, fields...)
 	}
-	line := m.table + "." + m.column + ":" + identityString(m) + ": " +
-		p.renderValue(m.value, m.spans) + "\n"
+	prefix := m.table + "." + m.column + ":" + identityString(m) + ": "
+	if p.headSet {
+		return p.writeHeadMatch(prefix, m.value, m.spans)
+	}
+	line := prefix + p.renderValue(m.value, m.spans) + "\n"
 	_, err := io.WriteString(p.w, line)
 	return err
 }
 
 func (p *printer) encodeMatchJSON(m match) error {
+	value, spans := m.value, m.spans
+	omitted := 0
+	if p.headSet {
+		value, omitted = headPreview(value, p.headLines)
+		spans = clipSpans(spans, len(value))
+	}
 	obj := map[string]any{
 		"table":  m.table,
 		"column": m.column,
-		"value":  m.value,
+		"value":  value,
 	}
 	if m.pk != nil {
 		pk := make(map[string]any, len(m.pk))
@@ -340,8 +418,11 @@ func (p *printer) encodeMatchJSON(m match) error {
 	} else {
 		obj["rowid"] = m.rowid
 	}
-	if len(m.spans) > 0 {
-		obj["spans"] = m.spans
+	if len(spans) > 0 {
+		obj["spans"] = spans
+	}
+	if omitted > 0 {
+		obj["truncated_lines"] = omitted
 	}
 	if m.row != nil {
 		obj["row"] = m.row
@@ -391,19 +472,29 @@ func (p *printer) printFTSMatch(m ftsMatch) error {
 		}
 		return writeTSVRecord(p.w, fields...)
 	}
-	line := m.table + ":" + strconv.FormatInt(m.rowid, 10) + ": " +
-		p.renderValue(text, spans) + "\n"
+	prefix := m.table + ":" + strconv.FormatInt(m.rowid, 10) + ": "
+	if p.headSet {
+		return p.writeHeadMatch(prefix, text, spans)
+	}
+	line := prefix + p.renderValue(text, spans) + "\n"
 	_, err := io.WriteString(p.w, line)
 	return err
 }
 
 func (p *printer) encodeFTSMatchJSON(m ftsMatch) error {
 	text, _ := extractMarkerSpans(m.snippet)
+	omitted := 0
+	if p.headSet {
+		text, omitted = headPreview(text, p.headLines)
+	}
 	obj := map[string]any{
 		"table":   m.table,
 		"rowid":   m.rowid,
 		"snippet": text,
 		"rank":    m.rank,
+	}
+	if omitted > 0 {
+		obj["truncated_lines"] = omitted
 	}
 	if m.row != nil {
 		obj["row"] = m.row

@@ -155,6 +155,7 @@ litefind --schema events.db 'user*'                DDL for tables matching a glo
 | `--tsv` | tab-separated output for Unix pipelines |
 | `--stats` | print a search statistics summary line |
 | `--max-columns N` | truncate displayed values to N chars (default 200; 0 disables) |
+| `--head N` | preview the first N lines in text/JSON output (0 disables) |
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
 | `--fts QUERY` | FTS5 match syntax; replaces PATTERN |
 
@@ -215,6 +216,12 @@ Both take `--json`.
 
 ### Output
 
+Use `--head N` for line-oriented previews of multiline values:
+
+```sh
+litefind --head 5 -t events -c message timeout events.db
+```
+
 Text (default):
 
 ```
@@ -222,12 +229,14 @@ table.column:rowid: snippet
 ```
 
 `pk=(v1,v2)` appears in place of `rowid` for `WITHOUT ROWID` tables and
-rowid-fallback tables.
+rowid-fallback tables. `--head N` emits the first N physical lines and an
+omitted-line marker; `--head 0` keeps the full multiline value. It cannot be
+combined with `--max-columns` or `--tsv`.
 
 JSON (`--json`):
 
 ```
-{table, column, rowid|pk, value, spans}    # "row" added when --row is set
+{table, column, rowid|pk, value, spans}    # "row" added by --row; "truncated_lines" by --head
 ```
 
 TSV (`--tsv`) emits full, unhighlighted values:

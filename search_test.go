@@ -571,6 +571,39 @@ func TestSearchTSVRowRequiresOneTable(t *testing.T) {
 	}
 }
 
+func TestSearchHeadPreview(t *testing.T) {
+	path := fixturePath(t)
+	out, stderr, code := runCmd(t, "timeout", path, "-t", "events", "-c", "message", "--head", "1")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := "events.message:4: line one\n[... 1 more lines]\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("head output missing %q: %q", want, out)
+	}
+
+	out, stderr, code = runCmd(t, "timeout", path, "-t", "events", "-c", "message", "--head", "1", "--json")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("JSON exit = %d, stderr = %q", code, stderr)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if obj["rowid"] == float64(4) {
+			if obj["value"] != "line one\n" || obj["truncated_lines"] != float64(1) {
+				t.Fatalf("head JSON row = %v", obj)
+			}
+			if _, ok := obj["spans"]; ok {
+				t.Fatalf("omitted match span must be absent: %v", obj)
+			}
+			return
+		}
+	}
+	t.Fatal("missing multiline JSON match")
+}
+
 func TestSearchJSONParity(t *testing.T) {
 	// Both modes must report identical matches INCLUDING values: each
 	// JSONL object is reconstructed into the exact text line it should

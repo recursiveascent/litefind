@@ -350,6 +350,40 @@ func TestFTSMaxColumnsTruncatesSnippet(t *testing.T) {
 	}
 }
 
+func TestFTSHeadPreview(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fts-head.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE VIRTUAL TABLE notes USING fts5(body)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO notes(body) VALUES ('timeout first' || char(10) || 'second' || char(10) || 'third')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, code := runCmd(t, "--fts", "timeout", path, "-t", "notes", "--head", "1")
+	if code != exitMatch || stderr != "" || out != "notes:1: timeout first\n[... 2 more lines]\n" {
+		t.Fatalf("text exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+
+	out, stderr, code = runCmd(t, "--fts", "timeout", path, "-t", "notes", "--head", "1", "--json")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("JSON exit = %d, stderr = %q", code, stderr)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatal(err)
+	}
+	if obj["snippet"] != "timeout first\n" || obj["truncated_lines"] != float64(2) {
+		t.Fatalf("fts head JSON = %v", obj)
+	}
+}
+
 func TestResolveFTSUnscopedUsesAllIndexes(t *testing.T) {
 	tgts, err := resolveFixture(t, searchOpts{})
 	if err != nil {
