@@ -1,0 +1,1 @@
+{"table":"metrics","column":"count","avg":3.5,"sum":7,"min":3,"max":4,"count":2}

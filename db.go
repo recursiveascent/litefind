@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,10 +11,27 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 type database struct{ sql *sql.DB }
+
+func init() {
+	sqlite.MustRegisterScalarFunction("litefind_match", 2, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("litefind_match requires two arguments")
+		}
+		token, ok := args[0].(string)
+		if !ok {
+			return nil, fmt.Errorf("litefind_match token must be text")
+		}
+		value, ok := args[1].(string)
+		if !ok {
+			return nil, fmt.Errorf("litefind_match value must be text")
+		}
+		return sqliteMatch(token, value)
+	})
+}
 
 // openRO opens path read-only (mode=ro, busy_timeout 5000ms). immutable
 // adds immutable=1 — caller-asserted static file, never assumed. It

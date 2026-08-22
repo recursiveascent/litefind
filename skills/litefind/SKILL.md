@@ -7,12 +7,14 @@ description: Use when searching, aggregating, or introspecting a SQLite database
 
 `litefind` is a search, aggregation, and introspection tool for SQLite database files — the tool to reach for when you would reach for `rg` on a directory, but the target is a `.db`/`.sqlite`/`.sqlite3` file. Tables and columns replace paths and globs.
 
-Four modes:
+Five modes:
 
 ```text
 litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
 litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]
                                                count distinct values
+litefind --agg KIND -c [TABLE.]COLUMN [PATTERN] <db> [flags]
+                                               aggregate numeric values
 litefind --tables <db> [flags]                list tables: name, kind, row count, column count
 litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
@@ -33,6 +35,7 @@ In an unfamiliar database, orient before searching:
 2. `litefind --schema <db> [table-glob]` — DDL and column detail for the tables you care about.
 3. `litefind <pattern> <db> [flags]` — locate matching rows.
 4. `litefind --freq -t <table> -c <column> <db>` — when the question is which values are most common.
+5. `litefind --agg stats -t <table> -c <column> <db>` — when the question asks for numeric statistics.
 
 Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing table names.
 
@@ -74,6 +77,17 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `--all-tables` | include shadow tables in target resolution |
 | `--immutable` | caller asserts the database cannot change |
 
+### Aggregate flags
+
+| Flag | Meaning |
+|------|---------|
+| `--agg KIND` | `avg`, `sum`, `min`, `max`, or combined `stats` |
+| `-t, -T, -c` | scope exactly one numeric-affinity target |
+| `-F, -i, -S, -w` | filter target values when PATTERN is supplied |
+| `--json` | emit one aggregate object |
+| `--all-tables` | include shadow tables in target resolution |
+| `--immutable` | caller asserts the database cannot change |
+
 `--tables` and `--schema` do not accept the search flags above. `--tables` accepts `--json`, `--no-counts`, `--all-tables`, `--immutable`; `--schema` accepts `--json`, `--immutable`.
 
 Run `litefind --help` for the exhaustive, always-current flag reference.
@@ -86,6 +100,7 @@ json:   {table, column, rowid|pk, value, spans}     (`row` added by `--row`; `tr
 tsv:    table<TAB>column<TAB>identity<TAB>value     (--row appends one scoped table's values in schema order)
 fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json) / table<TAB>rowid<TAB>snippet (tsv)
 freq:   <escaped-value>\t<count>                    (text) / {table, column, value, count} (json) / table<TAB>column<TAB>value<TAB>count (tsv)
+agg:    table.column: avg=... sum=... min=... max=... count=... (text) / {table, column, avg, sum, min, max, count} (json)
 ```
 
 Exit codes (ripgrep's contract): `0` match found, `1` no match, `2` usage/runtime error.
@@ -121,6 +136,11 @@ litefind --freq -t events -c level events.db      # most common levels
 litefind --freq -i -t events -c message error events.db
 litefind --freq --json --limit 10 -t events -c level events.db
 
+# Numeric aggregation
+litefind --agg stats -t turns -c input_tokens sessions.db
+litefind --agg avg -t turns -c input_tokens gpt-5 sessions.db
+litefind --agg max --json -t turns -c duration_ms sessions.db
+
 # Full row and previews for context
 litefind --json --row -t events timeout events.db # typed JSON column values
 litefind --head 5 -t events timeout events.db     # first five lines per match
@@ -144,6 +164,8 @@ litefind --fts '{body}: timeout' events.db        # FTS5 column-filter syntax
 **Exit 1 means "no matches or results," not failure.** Do not retry, do not vary flags, do not report an error. Report that nothing matched or remained after filtering. Only exit 2 is an actual error.
 
 **`--freq` needs exactly one concrete column.** Use `-t` and `-c` narrowly enough that they resolve to one `table.column`. Values group by `CAST(column AS TEXT)` under binary collation, so integer `1` and text `"1"` share a group; NULL and BLOB values are excluded. Matcher flags require an optional frequency pattern, and `--limit` applies after that filter.
+
+**`--agg` needs exactly one numeric-affinity column.** KIND is `avg`, `sum`, `min`, `max`, or `stats`. Only runtime INTEGER/REAL values contribute; NULL, BLOB, and nonnumeric stored values are excluded. An optional pattern filters the target column only, not the whole row. Aggregate mode supports text and JSON, not TSV.
 
 **`--fts` is a different matching regime.** These flags are rejected with a usage error (exit 2) when combined with `--fts`: `-F -i -S -w -c --all-tables`. Case and tokenization are governed by the FTS5 index's own tokenizer, not by litefind flags; scope columns with FTS5's native syntax, e.g. `--fts '{body}: timeout'`. Compatible with `--fts`: `-t`/`-T`, `-l`, `-m`, `--count`, `--row`, `--json`, `--stats`, `--max-columns`, `--head`, `--immutable`; `--head` remains incompatible with `--tsv`. FTS output is row-level (no column/spans); rows are rank-ordered per FTS index, not globally across indexes.
 

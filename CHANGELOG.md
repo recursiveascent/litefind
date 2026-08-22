@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `--agg avg|sum|min|max|stats` for numeric-affinity columns, with
+  optional target-value filtering and typed text/JSON output.
 - Added `--head N` line-based previews for regular and FTS search in text and
   JSON output, including omitted-line counts.
 - Added `--tsv` output for search, FTS, frequency, `-l`, and `--count`, with

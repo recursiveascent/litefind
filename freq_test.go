@@ -19,17 +19,17 @@ func TestResolveFreqTarget(t *testing.T) {
 	}
 
 	t.Run("one qualified column", func(t *testing.T) {
-		got, err := resolveFreqTarget(cat, searchOpts{columns: []string{"events.level"}})
+		got, err := resolveColumnTarget("freq", cat, searchOpts{columns: []string{"events.level"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != (freqTarget{table: "events", column: "level"}) {
+		if got != (columnTarget{table: "events", column: "level"}) {
 			t.Errorf("target = %+v", got)
 		}
 	})
 
 	t.Run("duplicate specs deduplicate", func(t *testing.T) {
-		got, err := resolveFreqTarget(cat, searchOpts{
+		got, err := resolveColumnTarget("freq", cat, searchOpts{
 			tables:  []string{"events"},
 			columns: []string{"level", "events.level"},
 		})
@@ -39,21 +39,21 @@ func TestResolveFreqTarget(t *testing.T) {
 	})
 
 	t.Run("no columns", func(t *testing.T) {
-		_, err := resolveFreqTarget(cat, searchOpts{columns: []string{"missing"}})
+		_, err := resolveColumnTarget("freq", cat, searchOpts{columns: []string{"missing"}})
 		if err == nil || !strings.Contains(err.Error(), "matched no columns") {
 			t.Fatalf("error = %v", err)
 		}
 	})
 
 	t.Run("multiple columns list pairs", func(t *testing.T) {
-		_, err := resolveFreqTarget(cat, searchOpts{columns: []string{"level"}})
+		_, err := resolveColumnTarget("freq", cat, searchOpts{columns: []string{"level"}})
 		if err == nil || !strings.Contains(err.Error(), "events.level, logs.level") {
 			t.Fatalf("error = %v", err)
 		}
 	})
 
 	t.Run("table exclusion narrows target", func(t *testing.T) {
-		got, err := resolveFreqTarget(cat, searchOpts{
+		got, err := resolveColumnTarget("freq", cat, searchOpts{
 			notTables: []string{"logs"},
 			columns:   []string{"level"},
 		})
@@ -64,7 +64,7 @@ func TestResolveFreqTarget(t *testing.T) {
 
 	t.Run("views and shadows excluded by default", func(t *testing.T) {
 		for _, column := range []string{"v_events.level", "shadow_t.value"} {
-			if _, err := resolveFreqTarget(cat, searchOpts{columns: []string{column}}); err == nil ||
+			if _, err := resolveColumnTarget("freq", cat, searchOpts{columns: []string{column}}); err == nil ||
 				!strings.Contains(err.Error(), "matched no columns") {
 				t.Fatalf("column %q error = %v", column, err)
 			}
@@ -72,8 +72,8 @@ func TestResolveFreqTarget(t *testing.T) {
 	})
 
 	t.Run("all tables admits shadow", func(t *testing.T) {
-		got, err := resolveFreqTarget(cat, searchOpts{allTables: true, columns: []string{"shadow_t.value"}})
-		if err != nil || got != (freqTarget{table: "shadow_t", column: "value"}) {
+		got, err := resolveColumnTarget("freq", cat, searchOpts{allTables: true, columns: []string{"shadow_t.value"}})
+		if err != nil || got != (columnTarget{table: "shadow_t", column: "value"}) {
 			t.Fatalf("target = %+v, err = %v", got, err)
 		}
 	})

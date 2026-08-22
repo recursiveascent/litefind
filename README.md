@@ -3,8 +3,8 @@
 [![CI](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml/badge.svg)](https://github.com/recursiveascent/litefind/actions/workflows/ci.yml)
 
 ripgrep for SQLite databases. Read-only regex, fixed-string, and FTS5 search,
-frequency distribution, plus schema introspection. Tables and columns replace
-paths and globs as the scoping vocabulary.
+frequency distribution, numeric aggregation, plus schema introspection. Tables and
+columns replace paths and globs as the scoping vocabulary.
 
 ## Install
 
@@ -111,6 +111,8 @@ This writes to `~/.agents/skills/litefind/SKILL.md`. Use `--target project` for
 litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
 litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]
                                                count distinct values
+litefind --agg KIND -c [TABLE.]COLUMN [PATTERN] <db> [flags]
+                                               aggregate numeric values
 litefind --tables <db> [flags]                list tables: name, kind, row count, column count
 litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
 ```
@@ -131,6 +133,8 @@ litefind -F 'error: 42' events.db                  literal string match
 litefind -t events -c message timeout events.db    scope to a table + column
 litefind --freq -t events -c level events.db         most common event levels
 litefind --freq -i -t events -c message error events.db
+litefind --agg stats -t events -c duration_ms events.db # numeric statistics
+litefind --agg avg -t events -c duration_ms timeout events.db
 litefind --fts 'NEAR(timeout retry, 3)' events.db  FTS5 query syntax
 litefind --tables events.db                        table inventory
 litefind --schema events.db 'user*'                DDL for tables matching a glob
@@ -176,6 +180,19 @@ semantics as ordinary search. The limit applies after filtering.
 Text output is `<escaped-value>\t<count>`. `--json` emits JSONL objects with
 `table`, `column`, `value`, and `count`. `--tsv` emits those four fields as one
 tab-separated record.
+
+### Numeric aggregation
+
+`--agg avg|sum|min|max|stats` requires `-c` to resolve to exactly one column
+with INTEGER, REAL, or NUMERIC affinity. Only rows whose target value has
+runtime INTEGER or REAL storage are included; NULL, BLOB, and nonnumeric stored
+values are excluded. `stats` computes all four aggregates plus the included
+value count in one query.
+
+An optional pattern filters the target column's SQLite text rendering with the
+same regex, fixed-string, case, and word semantics as search. It does not search
+other columns in the row. `--json` emits one object; aggregate mode does not
+support TSV.
 
 ### Regex engine
 
@@ -264,6 +281,15 @@ Frequency output:
 <escaped-value>\t<count>                     # text
 {table, column, value, count}               # json
 table<TAB>column<TAB>value<TAB>count        # tsv
+```
+
+Aggregate output:
+
+```
+table.column: avg=... sum=... min=... max=... count=...  # text, stats
+table.column avg: ...                                      # text, one aggregate
+{table, column, avg, sum, min, max, count}                 # json, stats
+{table, column, <kind>, count}                             # json, one aggregate
 ```
 
 ### Read-only access

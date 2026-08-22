@@ -22,14 +22,17 @@ Invocation modes:
   use `CAST(c AS TEXT)`, excluding NULL and BLOB storage classes, and group
   under binary collation. An optional ordinary matcher filters grouped values
   before `--limit` is applied.
+- **`--agg KIND`** — `avg`, `sum`, `min`, `max`, or combined `stats` for
+  exactly one numeric-affinity column. Only runtime INTEGER/REAL values are
+  included; an optional matcher filters that target value, not the whole row.
 - **`--tables`** — table inventory: name, kind, row count, column count.
 - **`--schema`** — DDL plus structured column, index, and foreign-key detail.
 
 The database is opened **read-only** (`mode=ro`). litefind never writes to a
 database, never creates an FTS5 index, and never assumes immutability (the
 `--immutable` flag is an explicit, caller-asserted opt-in). Exit codes mirror
-ripgrep for **search**, **frequency**, and **`--schema`**: 0 = result found,
-1 = no result, 2 = usage or runtime error. **`--tables`** returns 0 on
+ripgrep for **search**, **frequency**, **numeric aggregation**, and **`--schema`**:
+0 = result found, 1 = no result, 2 = usage or runtime error. **`--tables`** returns 0 on
 success and 2 on error.
 `--help` prints to stdout and returns 0 on a valid invocation; its `fmt.Fprint`
 result is not checked, so a stdout write failure is not propagated as an error
@@ -55,7 +58,8 @@ otherwise.
 | `args.go`  | Argument reordering, flag parsing, mode and flag validation.       |
 | `db.go`    | Read-only open + diagnostics, catalog, DDL tokenizer, identity resolution. |
 | `search.go`| Regex/fixed search: matching, batching, streaming, scoping, command. |
-| `freq.go`  | Frequency target resolution, grouping, filtering, and output.       |
+| `freq.go`  | Shared exact-column resolution plus frequency grouping/output.       |
+| `aggregate.go` | Numeric affinity, matcher tokens, aggregate query, and output. |
 | `fts.go`   | FTS5 search: target resolution, query, setup-SQL generation, command. |
 | `introspect.go` | `--tables` and `--schema` modes.                              |
 | `output.go`| Text/JSON rendering, truncation, ANSI highlighting.                 |
@@ -63,8 +67,9 @@ otherwise.
 ## Control flow
 
 `run` (main.go) parses the invocation, opens the database read-only, and
-dispatches to search, frequency, tables, or schema according to the parsed
-mode. `cmdSearch`, `cmdSearchFTS`, and `cmdFreq` take the full `*invocation`;
+dispatches to search, frequency, numeric aggregation, tables, or schema according
+to the parsed mode. `cmdSearch`, `cmdSearchFTS`, `cmdFreq`, and `cmdAggregate`
+take the full `*invocation`;
 `cmdTables` takes just `searchOpts`; `cmdSchema` takes the glob and the JSON
 flag. All receive the `*database` and `stdout`/`stderr` writers
 and return an exit code. Opening the database happens after parsing, so parse
@@ -221,6 +226,25 @@ Text output is `<escaped-value>\t<count>` with control characters single-lined
 through the existing renderer. JSONL output contains `table`, `column`,
 `value`, and `count`. Query, scan, iteration, close, and output failures return
 exit 2; no emitted groups returns exit 1.
+
+#### Numeric aggregation
+
+`cmdAggregate` shares frequency's exact `columnTarget` resolution, then rejects
+TEXT/BLOB affinity using SQLite's declared-type precedence. The aggregate query
+includes only runtime INTEGER/REAL values. `stats` selects AVG, SUM, MIN, MAX,
+and COUNT together; individual kinds select one aggregate plus COUNT. A zero
+count emits nothing and exits 1.
+
+Patterned aggregation filters only the target value. `buildMatcher` compiles the
+normal Go regexp; a process-private token map exposes it to SQLite through the
+non-deterministic `litefind_match(token, value)` scalar function registered
+before connections open. A lazy SQL `CASE` prevents NULL/BLOB/text values from
+invoking that function. Tokens are removed after each query.
+
+Results preserve SQLite's int64/float64 types. NULL, NaN, and infinite nonempty
+results are errors, as are SUM overflow, query, scan, and output failures. Text
+prints either one labeled value or the combined stats line; JSON emits one
+object with the target, requested values, and count. Aggregate mode rejects TSV.
 
 #### FTS5 search
 

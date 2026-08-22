@@ -53,6 +53,8 @@ func TestGolden(t *testing.T) {
 		{"fts_docs.txt", []string{"--fts", "timeout", path, "-t", "docs"}, exitMatch, ""},
 		{"freq_events.txt", []string{"--freq", "-t", "events", "-c", "level", path}, exitMatch, ""},
 		{"freq_events_json.txt", []string{"--freq", "--json", "-t", "events", "-c", "level", path}, exitMatch, ""},
+		{"aggregate_metrics.txt", []string{"--agg", "stats", "-t", "metrics", "-c", "count", path}, exitMatch, ""},
+		{"aggregate_metrics_json.txt", []string{"--agg", "stats", "--json", "-t", "metrics", "-c", "count", path}, exitMatch, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

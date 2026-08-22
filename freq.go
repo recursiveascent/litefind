@@ -8,25 +8,30 @@ import (
 	"strings"
 )
 
-type freqTarget struct {
-	table, column string
+type columnTarget struct {
+	table, column, declType string
 }
 
-func resolveFreqTarget(cat []tableInfo, o searchOpts) (freqTarget, error) {
+func resolveColumnTarget(mode string, cat []tableInfo, o searchOpts) (columnTarget, error) {
 	if len(o.columns) == 0 {
-		return freqTarget{}, fmt.Errorf("--freq requires exactly one column via -c")
+		return columnTarget{}, fmt.Errorf("--%s requires exactly one column via -c", mode)
 	}
 
-	var targets []freqTarget
+	var targets []columnTarget
 	for _, ti := range scopeTables(cat, o) {
 		for _, column := range resolveColsForTable(o, ti) {
-			targets = append(targets, freqTarget{table: ti.name, column: column})
+			for _, c := range ti.cols {
+				if c.name == column {
+					targets = append(targets, columnTarget{table: ti.name, column: c.name, declType: c.declType})
+					break
+				}
+			}
 		}
 	}
 
 	switch len(targets) {
 	case 0:
-		return freqTarget{}, fmt.Errorf("--freq column scope matched no columns")
+		return columnTarget{}, fmt.Errorf("--%s column scope matched no columns", mode)
 	case 1:
 		return targets[0], nil
 	default:
@@ -34,11 +39,11 @@ func resolveFreqTarget(cat []tableInfo, o searchOpts) (freqTarget, error) {
 		for i, target := range targets {
 			names[i] = target.table + "." + target.column
 		}
-		return freqTarget{}, fmt.Errorf("--freq requires exactly one column; matched %s", strings.Join(names, ", "))
+		return columnTarget{}, fmt.Errorf("--%s requires exactly one column; matched %s", mode, strings.Join(names, ", "))
 	}
 }
 
-func writeFrequency(w io.Writer, target freqTarget, value string, count int64, jsonOut, tsvOut bool) error {
+func writeFrequency(w io.Writer, target columnTarget, value string, count int64, jsonOut, tsvOut bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(struct {
 			Table  string `json:"table"`
@@ -86,7 +91,7 @@ func cmdFreq(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
-	target, err := resolveFreqTarget(cat, o)
+	target, err := resolveColumnTarget("freq", cat, o)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return exitError

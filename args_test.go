@@ -243,6 +243,53 @@ func TestParseInvocationFreqValidation(t *testing.T) {
 	}
 }
 
+func TestParseInvocationAggregate(t *testing.T) {
+	for _, kind := range []string{"avg", "sum", "min", "max", "stats"} {
+		t.Run(kind, func(t *testing.T) {
+			inv, err := parseInvocation([]string{"--agg", kind, "-t", "events", "-c", "count", "^1", "app.db"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inv.sub != "aggregate" || inv.opts.aggregate != kind || inv.pattern != "^1" || !inv.hasPattern || inv.dbPath != "app.db" {
+				t.Fatalf("aggregate invocation = %+v", inv)
+			}
+		})
+	}
+
+	inv, err := parseInvocation([]string{"app.db", "--agg=stats", "-c", "count"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.sub != "aggregate" || inv.opts.aggregate != "stats" || inv.hasPattern {
+		t.Fatalf("aggregate without pattern = %+v", inv)
+	}
+}
+
+func TestParseInvocationAggregateValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"empty kind", []string{"--agg", "", "-c", "count", "app.db"}, "requires one of"},
+		{"bad kind", []string{"--agg", "median", "-c", "count", "app.db"}, "requires one of"},
+		{"missing column", []string{"--agg", "stats", "app.db"}, "exactly one column"},
+		{"missing db", []string{"--agg", "stats", "-c", "count"}, "usage"},
+		{"too many positionals", []string{"--agg", "stats", "-c", "count", "a", "b", "c"}, "usage"},
+		{"matcher without pattern", []string{"--agg", "stats", "-c", "count", "-i", "app.db"}, "requires an aggregate pattern"},
+		{"search stats", []string{"--agg", "stats", "-c", "count", "--stats", "app.db"}, "--stats"},
+		{"tsv", []string{"--agg", "stats", "-c", "count", "--tsv", "app.db"}, "--tsv"},
+		{"freq", []string{"--agg", "stats", "--freq", "-c", "count", "app.db"}, "cannot be combined"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseInvocation(tc.argv)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("parseInvocation(%v) error = %v, want substring %q", tc.argv, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseInvocationHead(t *testing.T) {
 	for _, argv := range [][]string{
 		{"needle", "app.db", "--head", "5"},

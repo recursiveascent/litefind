@@ -1,5 +1,5 @@
 // litefind is ripgrep for SQLite databases: read-only regex, fixed-string,
-// and FTS5 search, frequency distribution, plus schema introspection.
+// and FTS5 search, frequency distribution, numeric aggregation, plus schema introspection.
 package main
 
 import (
@@ -59,6 +59,8 @@ usage:
   litefind PATTERN <db> [flags]                 search (regex by default; -F for literal)
   litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]
                                                    count distinct values
+  litefind --agg KIND -c [TABLE.]COLUMN [PATTERN] <db> [flags]
+                                                   aggregate numeric values
   litefind --tables <db> [flags]                list tables: name, kind, row count, column count
   litefind --schema <db> [table-glob] [flags]   show DDL, columns, indexes, foreign keys
   litefind --skill <subcmd> [flags]             manage the litefind skill (install/print/status)
@@ -71,6 +73,8 @@ examples:
   litefind -F 'error: 42' events.db                    literal string match
   litefind -t events -c message timeout events.db      scope to a table + column
   litefind --freq -t events -c level events.db         most common event levels
+  litefind --agg stats -t events -c duration_ms events.db
+                                                           numeric column statistics
   litefind --fts 'NEAR(timeout retry, 3)' events.db    FTS5 query syntax
   litefind --tables events.db                          table inventory
   litefind --schema events.db 'user*'                  DDL for tables matching a glob
@@ -114,6 +118,15 @@ frequency flags:
   -F/-i/-S/-w                filter grouped values when PATTERN is supplied
   --json                     emit {table,column,value,count} JSONL
   --tsv                      emit table, column, value, count fields
+  --all-tables               include shadow tables in target resolution
+  --immutable                caller asserts the database cannot change
+
+aggregate flags:
+  --agg KIND                 avg, sum, min, max, or stats (all four plus count)
+  -c [TABLE.]GLOB            resolve exactly one numeric-affinity column
+  -t/-T                      use search table scoping
+  -F/-i/-S/-w                filter the target column's values when PATTERN is supplied
+  --json                     emit one aggregate object
   --all-tables               include shadow tables in target resolution
   --immutable                caller asserts the database cannot change
 
@@ -242,6 +255,8 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	defer func() { _ = db.close() }()
 
 	switch inv.sub {
+	case "aggregate":
+		return cmdAggregate(db, inv, stdout, stderr)
 	case "freq":
 		return cmdFreq(db, inv, stdout, stderr)
 	case "tables":

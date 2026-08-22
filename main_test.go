@@ -39,7 +39,7 @@ func TestRunHelpPrintsFullHelp(t *testing.T) {
 	// The standalone-FTS condition is about the rowid being unreachable,
 	// which an INTEGER PRIMARY KEY DESC column does not fix — help must
 	// not promise otherwise by saying merely "no INTEGER PRIMARY KEY".
-	for _, want := range []string{`\b`, "--count", "--freq", "--limit", "--fts", "--head", "--tsv", "--tables", "--schema", "no rowid-aliasing INTEGER PRIMARY KEY"} {
+	for _, want := range []string{`\b`, "--count", "--freq", "--agg", "--limit", "--fts", "--head", "--tsv", "--tables", "--schema", "no rowid-aliasing INTEGER PRIMARY KEY"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q; stdout = %q", want, stdout)
 		}

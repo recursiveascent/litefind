@@ -10,7 +10,7 @@ import (
 type searchOpts struct {
 	tables, notTables, columns                                                     []string
 	fixed, ignoreCase, smartCase, wordRegexp                                       bool
-	fts                                                                            string
+	fts, aggregate                                                                 string
 	listTables, count, row, jsonOut, tsvOut, stats, allTables, immutable, noCounts bool
 	headSet                                                                        bool
 	maxCount, maxColumns, headLines, limit                                         int
@@ -35,7 +35,7 @@ func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 // reorderArgs. Keep in sync with the flag definitions below.
 var valueFlags = map[string]bool{
 	"t": true, "table": true, "T": true, "not-table": true,
-	"c": true, "column": true, "fts": true, "m": true, "max-count": true,
+	"c": true, "column": true, "fts": true, "agg": true, "m": true, "max-count": true,
 	"max-columns": true, "head": true, "limit": true,
 }
 
@@ -83,6 +83,7 @@ var flagCanonical = map[string]string{
 	"l": "l", "tables-with-matches": "l",
 	"m": "m", "max-count": "m",
 	"fts":         "fts",
+	"agg":         "agg",
 	"count":       "count",
 	"row":         "row",
 	"json":        "json",
@@ -112,6 +113,11 @@ var allowedFlags = map[string]map[string]bool{
 		"freq": true, "t": true, "T": true, "c": true,
 		"F": true, "i": true, "S": true, "w": true,
 		"limit": true, "json": true, "tsv": true, "all-tables": true, "immutable": true,
+	},
+	"aggregate": {
+		"agg": true, "t": true, "T": true, "c": true,
+		"F": true, "i": true, "S": true, "w": true,
+		"json": true, "all-tables": true, "immutable": true,
 	},
 	"tables": {
 		"tables": true, "json": true, "no-counts": true, "all-tables": true, "immutable": true,
@@ -159,6 +165,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 	maxCount := fs.Int("m", 0, "")
 	fs.IntVar(maxCount, "max-count", 0, "")
 	fts := fs.String("fts", "", "")
+	aggregate := fs.String("agg", "", "")
 	count := fs.Bool("count", false, "")
 	row := fs.Bool("row", false, "")
 	jsonOut := fs.Bool("json", false, "")
@@ -194,7 +201,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 	}
 
 	var selectedModes []string
-	for _, name := range []string{"freq", "tables", "schema"} {
+	for _, name := range []string{"agg", "freq", "tables", "schema"} {
 		if suppliedFlags[name] {
 			selectedModes = append(selectedModes, "--"+name)
 		}
@@ -211,7 +218,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 	inv.opts = searchOpts{
 		tables: tables, notTables: notTables, columns: columns,
 		fixed: *fixed, ignoreCase: *ignoreCase, smartCase: *smartCase,
-		wordRegexp: *word, fts: *fts, listTables: *list, count: *count,
+		wordRegexp: *word, fts: *fts, aggregate: *aggregate, listTables: *list, count: *count,
 		row: *row, jsonOut: *jsonOut, tsvOut: *tsvOut, stats: *stats, allTables: *allTables,
 		immutable: *immutable, noCounts: *noCounts, headSet: suppliedFlags["head"],
 		maxCount: *maxCount, maxColumns: *maxColumns, headLines: *headLines, limit: *limit,
@@ -226,6 +233,8 @@ func parseInvocation(argv []string) (*invocation, error) {
 
 	pos := fs.Args()
 	switch {
+	case suppliedFlags["agg"]:
+		inv.sub = "aggregate"
 	case suppliedFlags["freq"]:
 		inv.sub = "freq"
 	case suppliedFlags["tables"]:
@@ -256,6 +265,34 @@ func parseInvocation(argv []string) (*invocation, error) {
 		}
 		if err := validateTSVCompat(inv.opts); err != nil {
 			return nil, err
+		}
+	case "aggregate":
+		if len(pos) < 1 || len(pos) > 2 {
+			return nil, fmt.Errorf("usage: litefind --agg avg|sum|min|max|stats -c [TABLE.]COLUMN [PATTERN] <db> [flags]")
+		}
+		if len(pos) == 2 {
+			inv.pattern, inv.dbPath = pos[0], pos[1]
+			inv.hasPattern = true
+		} else {
+			inv.dbPath = pos[0]
+		}
+		if err := validateFlagsForMode(suppliedFlags, "aggregate", false); err != nil {
+			return nil, err
+		}
+		switch inv.opts.aggregate {
+		case "avg", "sum", "min", "max", "stats":
+		default:
+			return nil, fmt.Errorf("--agg requires one of avg, sum, min, max, stats")
+		}
+		if len(inv.opts.columns) == 0 {
+			return nil, fmt.Errorf("--agg requires exactly one column via -c")
+		}
+		if !inv.hasPattern {
+			for _, name := range []string{"F", "i", "S", "w"} {
+				if suppliedFlags[name] {
+					return nil, fmt.Errorf("%s requires an aggregate pattern", formatFlagName(name))
+				}
+			}
 		}
 	case "freq":
 		if len(pos) < 1 || len(pos) > 2 {
