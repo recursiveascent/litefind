@@ -3,6 +3,7 @@
 /.roborev/
 # superpowers SDD scratch
 /.superpowers/
+/.workspaces/
 /litefind
 /build/
 /dist/
