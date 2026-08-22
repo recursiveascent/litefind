@@ -279,6 +279,184 @@ Frequency text output calls `renderUnbounded` without spans or color to reuse
 control-character escaping without truncation. Its JSONL path uses a dedicated
 anonymous record containing the resolved target and aggregate count.
 
+`--tsv` is a machine-oriented output mode accepted by regex/fixed search,
+FTS search, and frequency mode. It is mutually exclusive with `--json`; the
+`--tables` and `--schema` introspection modes reject it. Search's `-l` and
+`--count` variants remain search output and do accept TSV. `--stats` is rejected
+with TSV so a data stream never mixes records with different schemas. TSV also
+rejects `-l` combined with `--count`, rejects `--row` combined with either
+summary flag, and rejects `--row --all-tables` because shadow-table schemas are
+not exposed by `--schema`. TSV emits no header, no ANSI highlighting, and, like
+JSON, full values rather than the text renderer's `--max-columns` window. Full values and repeated `--row` payloads may
+produce substantially more output than default text mode.
+
+Fields are separated by literal tabs and records by literal newlines. Textual
+fields escape backslash, tab, newline, and carriage return as `\\`, `\t`, `\n`,
+and `\r`; other C0 control bytes, DEL, and invalid UTF-8 bytes become `\xhh`
+with exactly two lowercase hexadecimal digits. Appended row values are textual, not generally type-preserving—callers needing
+fully typed data use `--json`—but NULL and BLOB remain unambiguous: SQL NULL is
+the reserved token `\N`, and BLOB is `\B` followed by lowercase hexadecimal.
+INTEGER uses `strconv.FormatInt(v, 10)`; REAL uses
+`strconv.FormatFloat(v, 'g', -1, 64)`, preserving signed zero and using Go's
+lowercase exponent form when needed. Non-finite values, if returned by the
+SQLite driver, therefore serialize as `NaN`, `+Inf`, or `-Inf`. Serialization
+branches on SQLite storage class first: reserved NULL/BLOB tokens are emitted
+directly, while every other value passes through text escaping. Literal TEXT
+such as `\N`, `\Bff`, or an invalid byte rendered as `\xff` begins with an
+escaped backslash (`\\...`) and cannot collide with a reserved token.
+
+Record layouts are exact and mode-specific:
+
+- regular match: `table`, `column`, `identity`, `value`
+- regular match with `--row`: the four fields above, followed by every value
+  included by the existing JSON `--row` payload, in schema order
+- FTS match: `table`, `rowid`, `snippet`; rank is intentionally omitted to keep
+  the issue's Unix-pipeline contract
+- FTS match with `--row`: the three fields above, then `source_table`, followed
+  by every value included by the existing JSON `--row` payload in source-table
+  schema order
+- frequency: `table`, `column`, `value`, `count`
+- search `-l`: `table`
+- search `--count`: `table`, `count`
+
+Because `--row` records have table-dependent trailing fields and TSV has no
+header, source resolution happens after catalog/FTS target resolution but before any
+result-producing scan/query or stdout write. Regex/fixed `--row --tsv` requires `scopeTables` to contain
+exactly one table, regardless of which tables would eventually match. FTS
+`--row --tsv` requires `resolveFTS` to produce exactly one target: its source is
+`tgt.source` for an external-content index, otherwise `tgt.index`. The resolved
+source must exist in the catalog and supply the row projection; a missing
+external-content source exits 2 before result output even if the query would
+produce no matches. Any multi-target result exits 2 before output with guidance
+to narrow `-t`.
+
+Regex/fixed search appends the existing JSON `row` projection in catalog
+order: columns from `PRAGMA table_xinfo` whose `hidden` value is `0`, `2`, or
+`3`; virtual-table hidden columns (`hidden=1`) remain excluded. FTS emits the
+resolved source name as `source_table`, then appends that same projection in
+catalog order. FTS row retrieval selects the catalog-derived, individually
+quoted column list rather than `SELECT *`; a rename/removal therefore fails the
+query instead of silently reassigning positions. Generated columns (`hidden=2`
+or `3`) are included in both modes, while virtual-table hidden columns are
+included in neither.
+
+The mapping is obtained with `litefind --schema <db> <table> --json`, using the
+regular record's `table` or the FTS record's explicit `source_table`. Its existing
+`columns` array is already the canonical row projection in catalog (`cid`) order:
+`catalog()` excludes virtual-table hidden columns (`hidden=1`) and retains
+ordinary/generated columns before schema output is built. Both TSV row modes use
+every returned array entry, so no schema JSON change is required. An integration
+test derives this projection from schema JSON and compares names, count, and
+order to emitted trailing fields. Row payloads retain that order internally
+alongside the map used by JSON, so all existing JSON behavior is unchanged. The projection is
+fixed from the invocation's catalog result before scanning. Regular row queries
+already select that explicit catalog column list; FTS adopts the same rule.
+Concurrent DDL is not reconciled: if any projected column is renamed or removed,
+SQLite rejects the explicit query and litefind exits 2 rather than emitting a
+same-width but mislabeled row. Consumers mapping fields with a separate
+`--schema` invocation require a database whose schema remains stable between
+the two commands. SQLite rejects duplicate column names within one
+table under its identifier rules, so the ordered projection cannot contain two
+indistinguishable names; the ordered slice, not the JSON map iteration order,
+controls TSV output.
+
+A regular rowid identity is its base-10 integer. A non-rowid identity is `pk=`
+followed by a JSON array of typed strings in declared key order. Tokens are
+`n:`, `i:<decimal>`, `r:<shortest-round-trip-decimal>`, `t:<escaped-bytes>`, and
+`b:<lowercase-hex>` for NULL, integer, real, text, and BLOB respectively. Text
+bytes use the TSV escaping rules before JSON encoding, so invalid UTF-8 and
+reserved-looking text remain lossless. This identity field is self-delimiting
+and independent of the human renderer's `pk=(...)` representation.
+
+There is intentionally no header or format-version record: every accepted
+non-row command has one fixed record schema, and `--row` is restricted to one
+source schema. Table names, column names, source names, regular match values,
+FTS snippets, and frequency values are always TEXT fields. Regular search reads
+`typeof(column)` beside `CAST(column AS TEXT)` and skips NULL/BLOB storage
+classes before running the matcher; they can never produce a regular match
+record. All other storage classes match and emit SQLite's cast string. Frequency applies the same `typeof(column) NOT IN ('null','blob')`
+filter before grouping, groups by `CAST(column AS TEXT) COLLATE BINARY`, and
+emits that same cast group key, so INTEGER `1`, REAL `1.0` (whose SQLite cast is
+`'1.0'`), and TEXT values group exactly according to their cast strings; values
+with the same cast string share one group regardless of original storage class.
+Frequency sorts by count descending, then cast value ascending with `BINARY`
+collation. NULL and BLOB frequency groups cannot exist. FTS emits SQLite's
+marker-stripped `snippet(...)` text. These fields therefore represent SQLite's text conversion,
+not the original storage class, and never interpret `\N` or `\B...` as typed
+tokens. Rowid/count fields are decimal integers. Only trailing `--row` fields
+use the storage-class-aware NULL/BLOB tokens, while the regular identity field
+follows the rowid/typed-PK grammar above. TSV preserves each mode's existing
+deterministic ordering: regular matches are catalog-table order, then row
+identity, then catalog-column order; FTS targets are catalog order and matches
+within each target are rank then rowid; `-l`/`--count` follow catalog/target
+order; frequency uses the count/value ordering above.
+
+A decoder reverses TEXT escapes left-to-right: `\\`, `\t`, `\n`, `\r`, and
+`\xhh` are the only valid escapes, and emitted hex digits are lowercase. Unknown
+escapes, incomplete or non-hex `\xhh`, odd/non-hex BLOB payloads, malformed PK
+JSON/tokens, or reserved tokens in a field whose layout declares TEXT are decode
+errors rather than literals. The decoder exists only as an internal test helper
+to prove the documented wire grammar; litefind ships no decode command or Go
+API. The encoder contract remains public CLI behavior. A future incompatible
+schema requires a new output flag rather than silently changing `--tsv`. TSV is
+intended for Unix text tools, not spreadsheet import, and does not neutralize
+formula-leading characters such as `=`, `+`, `-`, or `@`.
+
+TSV changes rendering only. Search scanning, FTS querying, and frequency
+aggregation retain their existing work and memory behavior: `--limit` bounds
+frequency rows emitted, not the grouping query; `-m` bounds matches per table;
+full TSV values and rows are not buffered again by the formatter. Litefind adds
+no signal handling: an `io.Writer` error that reaches Go propagates through the
+existing output path, may leave earlier complete records on stdout, prints the
+write error to stderr, and exits 2; an operating-system SIGPIPE may instead
+terminate the process according to Go/platform behavior. Tests cover returned
+writer errors, not a universal closed-pipe exit status. In TSV-capable search
+and frequency modes, no matches produce no stdout and exit 1. The non-TSV `--tables` introspection exception is
+unchanged: a successful inventory exits 0 even when it contains no user tables.
+Usage, SQLite, and write errors remain human diagnostics on stderr and exit 2;
+stderr is never encoded as TSV.
+
+**Goals:** unambiguous line-oriented fields for Unix pipelines, complete match
+values, ordered single-source row payloads, and unchanged exit/error semantics.
+**Non-goals:** preserving every SQLite storage type (use JSON), spreadsheet-safe
+CSV behavior, headers, arbitrary multi-source row schemas, or changing query
+execution.
+
+Acceptance requires: every documented record layout is covered by CLI tests;
+text/control escapes decode to their original bytes; NULL and BLOB decode
+without colliding with TEXT; row schemas are stable and discoverable through
+`--schema`; declared mode conflicts and multi-source rows exit 2 before output;
+no-match runs exit 1 with empty stdout; returned writer errors exit 2 while
+platform SIGPIPE behavior remains unchanged; TSV never contains ANSI; and all
+existing text and JSON behavior/tests remain unchanged.
+
+Implementation proceeds test-first in reviewable increments:
+
+1. argument acceptance and conflicts, including `-l --count`, summary/row,
+   `--row --all-tables`, and unchanged no-match/error diagnostics;
+2. preserve ordered row values beside the existing JSON map, validate
+   single-source and external-content source resolution before output, and test
+   ordinary/generated/virtual-hidden plus shadow-table policy against the
+   existing schema JSON projection;
+3. serializer/decoder round-trip tests for valid and invalid UTF-8 TEXT, every
+   control byte, trailing-row NULL, BLOB with identical bytes, integer/REAL edge
+   cases, and composite text/BLOB primary keys;
+4. regular match output and ordered row payloads, including tabs/newlines,
+   multi-table rejection, color suppression, and returned-writer-error
+   propagation without changing platform SIGPIPE handling;
+5. FTS output and explicit catalog-derived row projection, including direct and
+   external-content targets whose virtual/source schemas differ,
+   missing/renamed-source-column failure, schema projection parity, plus color
+   and write-error paths;
+6. frequency, `-l`, and `--count` integration, with exact field counts and
+   fixtures proving NULL/BLOB exclusion plus cast-string grouping and binary
+   tie ordering across mixed INTEGER/REAL/TEXT storage classes;
+7. usage text, README, `docs/design.md`, and embedded agent skill updates;
+8. run a final end-to-end compatibility matrix across every record layout,
+   declared conflict, and exit code; verify normal piped consumption succeeds
+   and returned writer errors exit 2 without asserting a universal closed-pipe
+   status; then run full project verification.
+
 ## Key design principles
 
 1. **Read-only, never assumes immutability.** `mode=ro` always; `--immutable`

@@ -504,6 +504,73 @@ func TestSearchListAndCount(t *testing.T) {
 	}
 }
 
+func TestSearchTSV(t *testing.T) {
+	out, stderr, code := runCmd(t, "connection", fixturePath(t), "-t", "events", "-c", "message", "--tsv")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := "events\tmessage\t1\tconnection timeout after 30s\n"
+	if out != want {
+		t.Fatalf("TSV output = %q, want %q", out, want)
+	}
+}
+
+func TestSearchTSVRow(t *testing.T) {
+	out, stderr, code := runCmd(t, "connection", fixturePath(t), "-t", "events", "-c", "message", "--tsv", "--row")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := "events\tmessage\t1\tconnection timeout after 30s\t1\tconnection timeout after 30s\terror\t1\n"
+	if out != want {
+		t.Fatalf("TSV row output = %q, want %q", out, want)
+	}
+}
+
+func TestSearchTSVPKAndTypedRowFields(t *testing.T) {
+	path := fixturePath(t)
+	out, stderr, code := runCmd(t, "30 timeout", path, "-t", "config", "-c", "value", "--tsv")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("PK TSV: exit = %d, stderr = %q", code, stderr)
+	}
+	if want := "config\tvalue\tpk=[\"t:timeout\"]\t30 timeout\n"; out != want {
+		t.Fatalf("PK TSV = %q, want %q", out, want)
+	}
+
+	out, stderr, code = runCmd(t, "text column", path, "-t", "blobs", "-c", "note", "--tsv", "--row")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("row TSV: exit = %d, stderr = %q", code, stderr)
+	}
+	if want := "blobs\tnote\t1\ttimeout in a text column\t1\t\\B74696d656f7574\ttimeout in a text column\n"; out != want {
+		t.Fatalf("typed row TSV = %q, want %q", out, want)
+	}
+}
+
+func TestSearchTSVNoMatch(t *testing.T) {
+	out, stderr, code := runCmd(t, "zzznothing", fixturePath(t), "-t", "events", "--tsv")
+	if code != exitNoMatch || out != "" || stderr != "" {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+}
+
+func TestSearchTSVSummaries(t *testing.T) {
+	path := fixturePath(t)
+	out, stderr, code := runCmd(t, "connection", path, "-t", "events", "--tsv", "-l")
+	if code != exitMatch || stderr != "" || out != "events\n" {
+		t.Fatalf("-l TSV: exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+	out, stderr, code = runCmd(t, "timeout", path, "-t", "events", "--tsv", "--count")
+	if code != exitMatch || stderr != "" || out != "events\t3\n" {
+		t.Fatalf("--count TSV: exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+}
+
+func TestSearchTSVRowRequiresOneTable(t *testing.T) {
+	out, stderr, code := runCmd(t, "timeout", fixturePath(t), "--tsv", "--row")
+	if code != exitError || out != "" || !strings.Contains(stderr, "exactly one table") {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+}
+
 func TestSearchJSONParity(t *testing.T) {
 	// Both modes must report identical matches INCLUDING values: each
 	// JSONL object is reconstructed into the exact text line it should
@@ -629,6 +696,11 @@ func TestSearchStdoutWriteErrorExitsError(t *testing.T) {
 	var stderr strings.Builder
 	if code := run([]string{"timeout", fixturePath(t)}, failWriter{}, &stderr); code != exitError {
 		t.Errorf("default mode: exit = %d, want %d", code, exitError)
+	}
+
+	stderr.Reset()
+	if code := run([]string{"timeout", fixturePath(t), "--tsv"}, failWriter{}, &stderr); code != exitError {
+		t.Errorf("TSV mode: exit = %d, want %d", code, exitError)
 	}
 
 	stderr.Reset()

@@ -3,9 +3,48 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 )
+
+func TestTSVTextFieldEscapesRecordDelimitersAndInvalidBytes(t *testing.T) {
+	value := "a\\\t\n\r\x00\x7f" + string([]byte{0xff}) + "é"
+	want := `a\\\t\n\r\x00\x7f\xffé`
+	if got := tsvTextField(value); got != want {
+		t.Fatalf("tsvTextField() = %q, want %q", got, want)
+	}
+}
+
+func TestTSVRowFieldStorageClasses(t *testing.T) {
+	negativeZero := math.Copysign(0, -1)
+	for _, tc := range []struct {
+		value any
+		want  string
+	}{
+		{nil, `\N`},
+		{[]byte{0x00, 0xff}, `\B00ff`},
+		{`\N`, `\\N`},
+		{int64(-42), `-42`},
+		{negativeZero, `-0`},
+	} {
+		if got := tsvRowField(tc.value); got != tc.want {
+			t.Errorf("tsvRowField(%v) = %q, want %q", tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestTSVIdentityCompositePK(t *testing.T) {
+	m := match{pk: []pkVal{
+		{col: "a", val: "x\t"},
+		{col: "b", val: []byte{0xff}},
+		{col: "c", val: int64(2)},
+	}}
+	want := `pk=["t:x\\t","b:ff","i:2"]`
+	if got := tsvIdentity(m); got != want {
+		t.Fatalf("tsvIdentity() = %q, want %q", got, want)
+	}
+}
 
 func TestRenderValueTruncationWindow(t *testing.T) {
 	p := &printer{maxColumns: 20}
@@ -27,6 +66,65 @@ func TestRenderValueEscapesNewlines(t *testing.T) {
 	got := p.renderValue("line one\nline two", nil)
 	if strings.ContainsRune(got, '\n') || !strings.Contains(got, `\n`) {
 		t.Errorf("newlines must be escaped: %q", got)
+	}
+}
+
+func TestPrintMatchTSV(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, tsvOut: true, color: true, maxColumns: 1}
+	m := match{table: "events", column: "message", rowid: 412, value: "full\tvalue\n", spans: [][2]int{{0, 4}}}
+	if err := p.printMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "events\tmessage\t412\tfull\\tvalue\\n\n"; got != want {
+		t.Fatalf("TSV match = %q, want %q", got, want)
+	}
+	if strings.Contains(b.String(), "\x1b[") {
+		t.Fatalf("TSV must not contain ANSI: %q", b.String())
+	}
+}
+
+func TestPrintFTSMatchTSV(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, tsvOut: true, color: true, maxColumns: 1}
+	m := ftsMatch{table: "notes", rowid: 2, snippet: "ripgrep \x01habits\x02\ntransfer", rank: -1.5}
+	if err := p.printFTSMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "notes\t2\tripgrep habits\\ntransfer\n"; got != want {
+		t.Fatalf("TSV FTS match = %q, want %q", got, want)
+	}
+}
+
+func TestPrintMatchTSVRow(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, tsvOut: true}
+	m := match{
+		table: "events", column: "message", rowid: 1, value: "hit",
+		row:       map[string]any{"id": int64(1), "note": nil, "raw": []byte{0xff}},
+		rowValues: []any{int64(1), nil, []byte{0xff}},
+	}
+	if err := p.printMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "events\tmessage\t1\thit\t1\t\\N\t\\Bff\n"; got != want {
+		t.Fatalf("TSV row = %q, want %q", got, want)
+	}
+}
+
+func TestPrintFTSMatchTSVRow(t *testing.T) {
+	var b bytes.Buffer
+	p := &printer{w: &b, tsvOut: true}
+	m := ftsMatch{
+		table: "docs_fts", rowid: 2, snippet: "a \x01hit\x02", rowSource: "docs",
+		row:       map[string]any{"id": int64(2), "body": "a hit"},
+		rowValues: []any{int64(2), "a hit"},
+	}
+	if err := p.printFTSMatch(m); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "docs_fts\t2\ta hit\tdocs\t2\ta hit\n"; got != want {
+		t.Fatalf("TSV FTS row = %q, want %q", got, want)
 	}
 }
 

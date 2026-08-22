@@ -141,6 +141,17 @@ func TestFreqTextGroupingAndEscaping(t *testing.T) {
 	}
 }
 
+func TestFreqTSV(t *testing.T) {
+	out, stderr, code := runCmd(t, "--freq", "--tsv", "-t", "values_t", "-c", "value", "--limit", "2", freqFixturePath(t))
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := "values_t\tvalue\terror\t3\nvalues_t\tvalue\t1\t2\n"
+	if out != want {
+		t.Fatalf("TSV frequency = %q, want %q", out, want)
+	}
+}
+
 func TestFreqJSON(t *testing.T) {
 	out, stderr, code := runCmd(t, "--freq", "--json", "-t", "values_t", "-c", "value", "--limit", "1", freqFixturePath(t))
 	if code != exitMatch || stderr != "" {
@@ -286,10 +297,14 @@ func TestFreqTargetErrors(t *testing.T) {
 }
 
 func TestFreqStdoutWriteErrorExitsError(t *testing.T) {
-	var stderr strings.Builder
-	code := run([]string{"--freq", "-t", "values_t", "-c", "value", freqFixturePath(t)}, failWriter{}, &stderr)
-	if code != exitError || !strings.Contains(stderr.String(), "simulated write failure") {
-		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
+	for _, extra := range [][]string{nil, {"--tsv"}} {
+		var stderr strings.Builder
+		argv := []string{"--freq", "-t", "values_t", "-c", "value", freqFixturePath(t)}
+		argv = append(argv, extra...)
+		code := run(argv, failWriter{}, &stderr)
+		if code != exitError || !strings.Contains(stderr.String(), "simulated write failure") {
+			t.Fatalf("args %v: exit = %d, stderr = %q", extra, code, stderr.String())
+		}
 	}
 }
 

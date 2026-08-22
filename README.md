@@ -152,6 +152,7 @@ litefind --schema events.db 'user*'                DDL for tables matching a glo
 | `--count` | print match counts per table instead of matches |
 | `--row` | attach the full row (typed values) to each match |
 | `--json` | JSONL output, one object per match |
+| `--tsv` | tab-separated output for Unix pipelines |
 | `--stats` | print a search statistics summary line |
 | `--max-columns N` | truncate displayed values to N chars (default 200; 0 disables) |
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
@@ -172,7 +173,8 @@ pattern filters grouped values with the same regex, fixed-string, case, and word
 semantics as ordinary search. The limit applies after filtering.
 
 Text output is `<escaped-value>\t<count>`. `--json` emits JSONL objects with
-`table`, `column`, `value`, and `count`.
+`table`, `column`, `value`, and `count`. `--tsv` emits those four fields as one
+tab-separated record.
 
 ### Regex engine
 
@@ -228,11 +230,23 @@ JSON (`--json`):
 {table, column, rowid|pk, value, spans}    # "row" added when --row is set
 ```
 
+TSV (`--tsv`) emits full, unhighlighted values:
+
+```
+table<TAB>column<TAB>identity<TAB>value
+```
+
+Backslashes, tabs, newlines, carriage returns, control bytes, and invalid UTF-8
+bytes are escaped so every match remains one record. With `--row`, narrow the
+search to one table with `-t`; row values follow in schema order. `--tsv` is
+mutually exclusive with `--json` and `--stats`.
+
 FTS output is row-level, not column-span-level:
 
 ```
 table:rowid: snippet                        # text
 {table, rowid, snippet, rank}               # json
+table<TAB>rowid<TAB>snippet                 # tsv
 ```
 
 Frequency output:
@@ -240,6 +254,7 @@ Frequency output:
 ```
 <escaped-value>\t<count>                     # text
 {table, column, value, count}               # json
+table<TAB>column<TAB>value<TAB>count        # tsv
 ```
 
 ### Read-only access

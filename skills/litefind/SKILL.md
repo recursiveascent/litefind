@@ -52,8 +52,9 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `-l, --tables-with-matches` | print only names of tables containing matches |
 | `-m, --max-count N` | stop after N matches per table |
 | `--count` | print match counts per table instead of matches |
-| `--row` | attach the full row (typed values) to each match; only visible with `--json` |
+| `--row` | attach the full row to each match; JSON keeps types, TSV appends values in schema order |
 | `--json` | JSONL output, one object per match |
+| `--tsv` | tab-separated output for Unix pipelines |
 | `--stats` | print a search statistics summary line |
 | `--max-columns N` | truncate displayed values to N chars in text output (default 200; 0 disables; JSON values are not truncated) |
 | `--all-tables` | include `sqlite_*` and FTS5 shadow tables (hidden by default) |
@@ -68,6 +69,7 @@ Mirrors `ls` → `cat` → `rg` on a directory, and is faster than guessing tabl
 | `-t, -T, -c` | scope the single concrete target |
 | `-F, -i, -S, -w` | filter grouped values when PATTERN is supplied |
 | `--json` | emit `{table,column,value,count}` JSONL |
+| `--tsv` | emit `table`, `column`, `value`, `count` as tab-separated fields |
 | `--all-tables` | include shadow tables in target resolution |
 | `--immutable` | caller asserts the database cannot change |
 
@@ -79,12 +81,18 @@ Run `litefind --help` for the exhaustive, always-current flag reference.
 
 ```
 text:   table.column:rowid: snippet                 (pk=(v1,v2) in place of rowid for WITHOUT ROWID and rowid-fallback tables)
-json:   {table, column, rowid|pk, value, spans}     ("row" added when --row is set; --row is JSON-only)
-fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json; row added when --row is set)
-freq:   <escaped-value>\t<count>                    (text) / {table, column, value, count} (json)
+json:   {table, column, rowid|pk, value, spans}     ("row" added when --row is set)
+tsv:    table<TAB>column<TAB>identity<TAB>value     (--row appends one scoped table's values in schema order)
+fts:    table:rowid: snippet                        (text) / {table, rowid, snippet, rank[, row]} (json) / table<TAB>rowid<TAB>snippet (tsv)
+freq:   <escaped-value>\t<count>                    (text) / {table, column, value, count} (json) / table<TAB>column<TAB>value<TAB>count (tsv)
 ```
 
 Exit codes (ripgrep's contract): `0` match found, `1` no match, `2` usage/runtime error.
+
+TSV emits full, unhighlighted values and escapes record delimiters. `--json` and
+`--tsv` are mutually exclusive. `--row --tsv` requires one scoped table/FTS
+target; use `-t`. TSV rejects `--stats`, `-l --count`, summary flags with
+`--row`, and `--row --all-tables`.
 
 ## Recipes
 
@@ -112,8 +120,12 @@ litefind --freq -t events -c level events.db      # most common levels
 litefind --freq -i -t events -c message error events.db
 litefind --freq --json --limit 10 -t events -c level events.db
 
-# Full row for context (requires --json)
-litefind --json --row -t events timeout events.db # attach typed column values
+# Full row for context
+litefind --json --row -t events timeout events.db # typed JSON column values
+litefind --tsv --row -t events timeout events.db  # schema-ordered TSV values
+
+# TSV for Unix pipelines
+litefind --tsv -t events timeout events.db | sort | uniq -c | sort -rn | head
 
 # JSON for programmatic use
 litefind --json -t events timeout events.db       # one JSON object per match

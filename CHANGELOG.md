@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added `--tsv` output for search, FTS, frequency, `-l`, and `--count`, with
+  escaped one-record-per-line values and schema-ordered `--row` fields.
+
 ## 0.1.1
 
 - Introspection is now selected by flags: `--tables` and `--schema` replace the

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 type printer struct {
 	w          io.Writer
 	jsonOut    bool
+	tsvOut     bool
 	color      bool // ANSI highlight; true only for tty text mode
 	maxColumns int  // 0 = no truncation, else a rune budget
 }
@@ -30,6 +32,95 @@ func identityString(m match) string {
 		return "pk=(" + strings.Join(vals, ",") + ")"
 	}
 	return strconv.FormatInt(m.rowid, 10)
+}
+
+func tsvTextField(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch s[i] {
+		case '\\':
+			b.WriteString(`\\`)
+			i++
+		case '\t':
+			b.WriteString(`\t`)
+			i++
+		case '\n':
+			b.WriteString(`\n`)
+			i++
+		case '\r':
+			b.WriteString(`\r`)
+			i++
+		default:
+			if s[i] < 0x20 || s[i] == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, s[i])
+				i++
+				continue
+			}
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				fmt.Fprintf(&b, `\x%02x`, s[i])
+				i++
+				continue
+			}
+			b.WriteString(s[i : i+size])
+			i += size
+		}
+	}
+	return b.String()
+}
+
+func tsvRowField(v any) string {
+	switch v := v.(type) {
+	case nil:
+		return `\N`
+	case []byte:
+		return `\B` + hex.EncodeToString(v)
+	case string:
+		return tsvTextField(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return tsvTextField(fmt.Sprint(v))
+	}
+}
+
+func tsvPKToken(v any) string {
+	switch v := v.(type) {
+	case nil:
+		return "n:"
+	case []byte:
+		return "b:" + hex.EncodeToString(v)
+	case string:
+		return "t:" + tsvTextField(v)
+	case int64:
+		return "i:" + strconv.FormatInt(v, 10)
+	case float64:
+		return "r:" + strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return "t:" + tsvTextField(fmt.Sprint(v))
+	}
+}
+
+func tsvIdentity(m match) string {
+	if m.pk == nil {
+		return strconv.FormatInt(m.rowid, 10)
+	}
+	tokens := make([]string, len(m.pk))
+	for i, pv := range m.pk {
+		tokens[i] = tsvPKToken(pv.val)
+	}
+	encoded, err := json.Marshal(tokens)
+	if err != nil {
+		panic(err)
+	}
+	return "pk=" + string(encoded)
+}
+
+func writeTSVRecord(w io.Writer, fields ...string) error {
+	_, err := io.WriteString(w, strings.Join(fields, "\t")+"\n")
+	return err
 }
 
 // renderValue single-lines value (\n -> \\n), truncates to a window of
@@ -216,6 +307,18 @@ func (p *printer) printMatch(m match) error {
 	if p.jsonOut {
 		return p.encodeMatchJSON(m)
 	}
+	if p.tsvOut {
+		fields := []string{
+			tsvTextField(m.table),
+			tsvTextField(m.column),
+			tsvIdentity(m),
+			tsvTextField(m.value),
+		}
+		for _, value := range m.rowValues {
+			fields = append(fields, tsvRowField(value))
+		}
+		return writeTSVRecord(p.w, fields...)
+	}
 	line := m.table + "." + m.column + ":" + identityString(m) + ": " +
 		p.renderValue(m.value, m.spans) + "\n"
 	_, err := io.WriteString(p.w, line)
@@ -250,11 +353,13 @@ func (p *printer) encodeMatchJSON(m match) error {
 // the matched terms, ranked by SQLite's bm25-derived rank (more negative is
 // a better match).
 type ftsMatch struct {
-	table   string
-	rowid   int64
-	snippet string // with \x01 \x02 marker bytes around matched terms
-	rank    float64
-	row     map[string]any
+	table     string
+	rowid     int64
+	snippet   string // with \x01 \x02 marker bytes around matched terms
+	rank      float64
+	row       map[string]any
+	rowValues []any
+	rowSource string
 }
 
 // printFTSMatch emits "table:rowid: snippet" (markers -> ANSI or removed)
@@ -272,6 +377,20 @@ func (p *printer) printFTSMatch(m ftsMatch) error {
 		return p.encodeFTSMatchJSON(m)
 	}
 	text, spans := extractMarkerSpans(m.snippet)
+	if p.tsvOut {
+		fields := []string{
+			tsvTextField(m.table),
+			strconv.FormatInt(m.rowid, 10),
+			tsvTextField(text),
+		}
+		if m.row != nil {
+			fields = append(fields, tsvTextField(m.rowSource))
+			for _, value := range m.rowValues {
+				fields = append(fields, tsvRowField(value))
+			}
+		}
+		return writeTSVRecord(p.w, fields...)
+	}
 	line := m.table + ":" + strconv.FormatInt(m.rowid, 10) + ": " +
 		p.renderValue(text, spans) + "\n"
 	_, err := io.WriteString(p.w, line)

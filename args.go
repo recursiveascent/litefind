@@ -8,11 +8,11 @@ import (
 )
 
 type searchOpts struct {
-	tables, notTables, columns                                             []string
-	fixed, ignoreCase, smartCase, wordRegexp                               bool
-	fts                                                                    string
-	listTables, count, row, jsonOut, stats, allTables, immutable, noCounts bool
-	maxCount, maxColumns, limit                                            int
+	tables, notTables, columns                                                     []string
+	fixed, ignoreCase, smartCase, wordRegexp                                       bool
+	fts                                                                            string
+	listTables, count, row, jsonOut, tsvOut, stats, allTables, immutable, noCounts bool
+	maxCount, maxColumns, limit                                                    int
 }
 
 type invocation struct {
@@ -85,6 +85,7 @@ var flagCanonical = map[string]string{
 	"count":       "count",
 	"row":         "row",
 	"json":        "json",
+	"tsv":         "tsv",
 	"stats":       "stats",
 	"max-columns": "max-columns",
 	"all-tables":  "all-tables",
@@ -102,13 +103,13 @@ var allowedFlags = map[string]map[string]bool{
 	"search": {
 		"t": true, "T": true, "c": true, "F": true, "i": true, "S": true,
 		"w": true, "l": true, "m": true, "count": true, "row": true,
-		"json": true, "stats": true, "max-columns": true, "all-tables": true,
+		"json": true, "tsv": true, "stats": true, "max-columns": true, "all-tables": true,
 		"immutable": true, "fts": true,
 	},
 	"freq": {
 		"freq": true, "t": true, "T": true, "c": true,
 		"F": true, "i": true, "S": true, "w": true,
-		"limit": true, "json": true, "all-tables": true, "immutable": true,
+		"limit": true, "json": true, "tsv": true, "all-tables": true, "immutable": true,
 	},
 	"tables": {
 		"tables": true, "json": true, "no-counts": true, "all-tables": true, "immutable": true,
@@ -159,6 +160,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 	count := fs.Bool("count", false, "")
 	row := fs.Bool("row", false, "")
 	jsonOut := fs.Bool("json", false, "")
+	tsvOut := fs.Bool("tsv", false, "")
 	stats := fs.Bool("stats", false, "")
 	maxColumns := fs.Int("max-columns", 200, "")
 	limit := fs.Int("limit", 20, "")
@@ -207,7 +209,7 @@ func parseInvocation(argv []string) (*invocation, error) {
 		tables: tables, notTables: notTables, columns: columns,
 		fixed: *fixed, ignoreCase: *ignoreCase, smartCase: *smartCase,
 		wordRegexp: *word, fts: *fts, listTables: *list, count: *count,
-		row: *row, jsonOut: *jsonOut, stats: *stats, allTables: *allTables,
+		row: *row, jsonOut: *jsonOut, tsvOut: *tsvOut, stats: *stats, allTables: *allTables,
 		immutable: *immutable, noCounts: *noCounts,
 		maxCount: *maxCount, maxColumns: *maxColumns, limit: *limit,
 	}
@@ -242,6 +244,9 @@ func parseInvocation(argv []string) (*invocation, error) {
 		if err := validateFlagsForMode(suppliedFlags, "search", inv.opts.fts != ""); err != nil {
 			return nil, err
 		}
+		if err := validateTSVCompat(inv.opts); err != nil {
+			return nil, err
+		}
 	case "freq":
 		if len(pos) < 1 || len(pos) > 2 {
 			return nil, fmt.Errorf("usage: litefind --freq -c [TABLE.]COLUMN [PATTERN] <db> [flags]")
@@ -253,6 +258,9 @@ func parseInvocation(argv []string) (*invocation, error) {
 			inv.dbPath = pos[0]
 		}
 		if err := validateFlagsForMode(suppliedFlags, "freq", false); err != nil {
+			return nil, err
+		}
+		if err := validateTSVCompat(inv.opts); err != nil {
 			return nil, err
 		}
 		if len(inv.opts.columns) == 0 {
@@ -298,10 +306,10 @@ func validateFlagsForMode(supplied map[string]bool, mode string, isFTS bool) err
 	allowed := allowedFlags[mode]
 	// For search with --fts, remove regex-only flags from the allowed set.
 	if mode == "search" && isFTS {
-		// Allowed flags for search+fts: fts, t, T, l, m, count, row, json, stats, max-columns, immutable.
+		// Allowed flags for search+fts: fts, t, T, l, m, count, row, json, tsv, stats, max-columns, immutable.
 		allowed = map[string]bool{
 			"fts": true, "t": true, "T": true, "l": true, "m": true,
-			"count": true, "row": true, "json": true, "stats": true,
+			"count": true, "row": true, "json": true, "tsv": true, "stats": true,
 			"max-columns": true, "immutable": true,
 		}
 	}
@@ -325,6 +333,28 @@ func formatFlagName(canonical string) string {
 		return "-" + canonical
 	}
 	return "--" + canonical
+}
+
+func validateTSVCompat(o searchOpts) error {
+	if !o.tsvOut {
+		return nil
+	}
+	if o.jsonOut {
+		return fmt.Errorf("--json and --tsv cannot be combined")
+	}
+	if o.stats {
+		return fmt.Errorf("--stats and --tsv cannot be combined")
+	}
+	if o.listTables && o.count {
+		return fmt.Errorf("-l and --count cannot be combined with --tsv")
+	}
+	if o.row && (o.listTables || o.count) {
+		return fmt.Errorf("--row cannot be combined with -l or --count in TSV output")
+	}
+	if o.row && o.allTables {
+		return fmt.Errorf("--all-tables cannot be combined with --row in TSV output")
+	}
+	return nil
 }
 
 // checkFTSFlagCompat enforces the spec's "Flag compatibility" section:

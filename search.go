@@ -10,6 +10,7 @@ import (
 	"path"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,6 +46,7 @@ type match struct {
 	value         string  // SQLite text rendition that was matched
 	spans         [][2]int
 	row           map[string]any // populated when --row
+	rowValues     []any          // schema order, for TSV --row
 }
 
 // pkVal is one column of a composite (or singleton) primary-key identity,
@@ -283,8 +285,10 @@ func scanTable(db *database, ti tableInfo, re *regexp.Regexp, cols []string, max
 		}
 
 		var rowMap map[string]any
+		var rowValues []any
 		if wantRow {
 			rowMap = make(map[string]any, len(ti.cols))
+			rowValues = make([]any, 0, len(ti.cols))
 			for bi, batch := range rowBatches {
 				raws := make([]any, len(batch))
 				dest := make([]any, len(batch))
@@ -296,6 +300,7 @@ func scanTable(db *database, ti tableInfo, re *regexp.Regexp, cols []string, max
 				}
 				for i, c := range batch {
 					rowMap[c.name] = raws[i]
+					rowValues = append(rowValues, raws[i])
 				}
 			}
 		}
@@ -376,11 +381,12 @@ func scanTable(db *database, ti tableInfo, re *regexp.Regexp, cols []string, max
 					spans[k] = [2]int{s[0], s[1]}
 				}
 				m := match{
-					table:  ti.name,
-					column: c.name,
-					value:  text,
-					spans:  spans,
-					row:    rowMap,
+					table:     ti.name,
+					column:    c.name,
+					value:     text,
+					spans:     spans,
+					row:       rowMap,
+					rowValues: rowValues,
 				}
 				if usePK {
 					m.pk = pk
@@ -705,6 +711,10 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	}
 
 	scoped := scopeTables(cat, o)
+	if o.tsvOut && o.row && len(scoped) != 1 {
+		_, _ = fmt.Fprintln(stderr, "--row with --tsv requires exactly one table; narrow the search with -t")
+		return exitError
+	}
 
 	start := time.Now()
 
@@ -731,7 +741,8 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 	p := &printer{
 		w:          stdout,
 		jsonOut:    o.jsonOut,
-		color:      searchColorEnabled(stdout, o.jsonOut),
+		tsvOut:     o.tsvOut,
+		color:      searchColorEnabled(stdout, o.jsonOut || o.tsvOut),
 		maxColumns: o.maxColumns,
 	}
 
@@ -777,7 +788,7 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		totalMatches += count
 		switch {
 		case o.listTables, o.count:
-			if err := emitTableSummary(stdout, st.name, count, o.listTables, o.count, o.jsonOut); err != nil && firstErr == nil {
+			if err := emitTableSummary(stdout, st.name, count, o.listTables, o.count, o.jsonOut, o.tsvOut); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
@@ -801,17 +812,23 @@ func cmdSearch(db *database, inv *invocation, stdout, stderr io.Writer) int {
 }
 
 // emitTableSummary prints one table's -l or --count line, text or JSON.
-func emitTableSummary(w io.Writer, name string, count int, listTables, countMode, jsonOut bool) error {
+func emitTableSummary(w io.Writer, name string, count int, listTables, countMode, jsonOut, tsvOut bool) error {
 	switch {
 	case listTables:
 		if jsonOut {
 			return json.NewEncoder(w).Encode(map[string]any{"table": name})
+		}
+		if tsvOut {
+			return writeTSVRecord(w, tsvTextField(name))
 		}
 		_, err := fmt.Fprintln(w, name)
 		return err
 	case countMode:
 		if jsonOut {
 			return json.NewEncoder(w).Encode(map[string]any{"table": name, "count": count})
+		}
+		if tsvOut {
+			return writeTSVRecord(w, tsvTextField(name), strconv.Itoa(count))
 		}
 		_, err := fmt.Fprintf(w, "%s:%d\n", name, count)
 		return err

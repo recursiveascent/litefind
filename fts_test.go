@@ -104,6 +104,34 @@ func TestResolveFTSNotTablesExcludesSiblingIndex(t *testing.T) {
 	}
 }
 
+func TestFTSTSV(t *testing.T) {
+	out, stderr, code := runCmd(t, "--fts", "timeout", fixturePath(t), "-t", "docs", "--tsv")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if want := "docs_fts\t2\tthe timeout setting matters for agents\n"; out != want {
+		t.Fatalf("FTS TSV = %q, want %q", out, want)
+	}
+}
+
+func TestFTSTSVRowUsesSourceSchema(t *testing.T) {
+	out, stderr, code := runCmd(t, "--fts", "timeout", fixturePath(t), "-t", "docs", "--tsv", "--row")
+	if code != exitMatch || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	want := "docs_fts\t2\tthe timeout setting matters for agents\tdocs\t2\tguide\tthe timeout setting matters for agents\tguide-slug\n"
+	if out != want {
+		t.Fatalf("FTS TSV row = %q, want %q", out, want)
+	}
+}
+
+func TestFTSTSVRowRequiresOneTarget(t *testing.T) {
+	out, stderr, code := runCmd(t, "--fts", "timeout", fixturePath(t), "--tsv", "--row")
+	if code != exitError || out != "" || !strings.Contains(stderr, "exactly one FTS target") {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+}
+
 func TestFTSEndToEnd(t *testing.T) {
 	out, _, code := runCmd(t, "--fts", "timeout", fixturePath(t), "-t", "docs")
 	if code != exitMatch {

@@ -38,7 +38,7 @@ func resolveFreqTarget(cat []tableInfo, o searchOpts) (freqTarget, error) {
 	}
 }
 
-func writeFrequency(w io.Writer, target freqTarget, value string, count int64, jsonOut bool) error {
+func writeFrequency(w io.Writer, target freqTarget, value string, count int64, jsonOut, tsvOut bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(struct {
 			Table  string `json:"table"`
@@ -48,6 +48,15 @@ func writeFrequency(w io.Writer, target freqTarget, value string, count int64, j
 		}{
 			Table: target.table, Column: target.column, Value: value, Count: count,
 		})
+	}
+
+	if tsvOut {
+		return writeTSVRecord(w,
+			tsvTextField(target.table),
+			tsvTextField(target.column),
+			tsvTextField(value),
+			fmt.Sprint(count),
+		)
 	}
 
 	p := printer{}
@@ -113,7 +122,7 @@ func cmdFreq(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		if matcher != nil && !matcher.MatchString(value) {
 			continue
 		}
-		if err := writeFrequency(stdout, target, value, count, o.jsonOut); err != nil {
+		if err := writeFrequency(stdout, target, value, count, o.jsonOut, o.tsvOut); err != nil {
 			_ = rows.Close()
 			_, _ = fmt.Fprintln(stderr, err)
 			return exitError

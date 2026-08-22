@@ -399,7 +399,7 @@ func standaloneFTSSetupSQL(ti tableInfo, textCols []colInfo) string {
 // external content). The fts5 query's own "rowid" column is, by FTS5's
 // design, kept in sync with the content_rowid value in the source table,
 // so m.rowid is exactly the key fetchRowByRowid needs.
-func searchFTSTarget(db *database, tgt ftsTarget, query string, maxCount int, wantRow bool) ([]ftsMatch, error) {
+func searchFTSTarget(db *database, tgt ftsTarget, query string, maxCount int, rowTable *tableInfo) ([]ftsMatch, error) {
 	idxQ := quoteIdent(tgt.index)
 	q := "SELECT rowid, snippet(" + idxQ + ", -1, char(1), char(2), '…', 16), rank FROM " + idxQ +
 		" WHERE " + idxQ + " MATCH ? ORDER BY rank, rowid"
@@ -415,11 +415,7 @@ func searchFTSTarget(db *database, tgt ftsTarget, query string, maxCount int, wa
 	}
 	defer func() { _ = rows.Close() }()
 
-	rowSource := tgt.source
 	rowKey := tgt.contentRowid
-	if rowSource == "" {
-		rowSource = tgt.index
-	}
 	if rowKey == "" {
 		rowKey = "rowid"
 	}
@@ -430,12 +426,14 @@ func searchFTSTarget(db *database, tgt ftsTarget, query string, maxCount int, wa
 		if err := rows.Scan(&m.rowid, &m.snippet, &m.rank); err != nil {
 			return nil, fmt.Errorf("%s: %w", tgt.index, err)
 		}
-		if wantRow {
-			row, err := fetchRowByRowid(db, rowSource, rowKey, m.rowid)
+		if rowTable != nil {
+			row, values, err := fetchRowByRowid(db, *rowTable, rowKey, m.rowid)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", tgt.index, err)
 			}
 			m.row = row
+			m.rowValues = values
+			m.rowSource = rowTable.name
 		}
 		matches = append(matches, m)
 	}
@@ -445,42 +443,55 @@ func searchFTSTarget(db *database, tgt ftsTarget, query string, maxCount int, wa
 	return matches, nil
 }
 
-// fetchRowByRowid fetches every column of table's row whose rowKey column
+func ftsRowTable(cat []tableInfo, tgt ftsTarget) (tableInfo, error) {
+	name := tgt.source
+	if name == "" {
+		name = tgt.index
+	}
+	for _, ti := range cat {
+		if asciiEqualFold(ti.name, name) {
+			return ti, nil
+		}
+	}
+	return tableInfo{}, fmt.Errorf("FTS row source %s is not present in the catalog", name)
+}
+
+// fetchRowByRowid fetches every catalog column of table's row whose rowKey column
 // equals rowid. Used for --row on an FTS match: table is either the
 // external-content source table (rowKey its content_rowid column, which
 // may name an ordinary INTEGER PRIMARY KEY rather than literal "rowid")
 // or, for a standalone/internal-content fts5 index, the index itself
 // (rowKey "rowid").
-func fetchRowByRowid(db *database, table, rowKey string, rowid int64) (map[string]any, error) {
-	rows, err := db.sql.Query("SELECT * FROM "+quoteIdent(table)+" WHERE "+quoteIdent(rowKey)+" = ?", rowid)
+func fetchRowByRowid(db *database, table tableInfo, rowKey string, rowid int64) (map[string]any, []any, error) {
+	columns := make([]string, len(table.cols))
+	for i, col := range table.cols {
+		columns[i] = quoteIdent(col.name)
+	}
+	rows, err := db.sql.Query("SELECT "+strings.Join(columns, ", ")+" FROM "+quoteIdent(table.name)+" WHERE "+quoteIdent(rowKey)+" = ?", rowid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	cols, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, fmt.Errorf("%s: row %d not found", table, rowid)
+		return nil, nil, fmt.Errorf("%s: row %d not found", table.name, rowid)
 	}
-	raws := make([]any, len(cols))
-	dest := make([]any, len(cols))
+	raws := make([]any, len(table.cols))
+	dest := make([]any, len(table.cols))
 	for i := range raws {
 		dest[i] = &raws[i]
 	}
 	if err := rows.Scan(dest...); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	row := make(map[string]any, len(cols))
-	for i, c := range cols {
-		row[c] = raws[i]
+	row := make(map[string]any, len(table.cols))
+	for i, col := range table.cols {
+		row[col.name] = raws[i]
 	}
-	return row, nil
+	return row, raws, nil
 }
 
 // cmdSearchFTS implements --fts: resolve targets (resolveFTS), query each
@@ -512,18 +523,38 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, err)
 		return exitError
 	}
+	if o.tsvOut && o.row && len(targets) != 1 {
+		_, _ = fmt.Fprintln(stderr, "--row with --tsv requires exactly one FTS target; narrow the search with -t")
+		return exitError
+	}
+	var rowTables []tableInfo
+	if o.row {
+		rowTables = make([]tableInfo, len(targets))
+		for i, tgt := range targets {
+			rowTables[i], err = ftsRowTable(cat, tgt)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return exitError
+			}
+		}
+	}
 
 	start := time.Now()
 	p := &printer{
 		w:          stdout,
 		jsonOut:    o.jsonOut,
-		color:      searchColorEnabled(stdout, o.jsonOut),
+		tsvOut:     o.tsvOut,
+		color:      searchColorEnabled(stdout, o.jsonOut || o.tsvOut),
 		maxColumns: o.maxColumns,
 	}
 
 	totalMatches, matchedTables := 0, 0
-	for _, tgt := range targets {
-		matches, err := searchFTSTarget(db, tgt, o.fts, o.maxCount, o.row)
+	for i, tgt := range targets {
+		var rowTable *tableInfo
+		if o.row {
+			rowTable = &rowTables[i]
+		}
+		matches, err := searchFTSTarget(db, tgt, o.fts, o.maxCount, rowTable)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return exitError
@@ -536,7 +567,7 @@ func cmdSearchFTS(db *database, inv *invocation, stdout, stderr io.Writer) int {
 
 		switch {
 		case o.listTables, o.count:
-			if err := emitTableSummary(stdout, tgt.index, len(matches), o.listTables, o.count, o.jsonOut); err != nil {
+			if err := emitTableSummary(stdout, tgt.index, len(matches), o.listTables, o.count, o.jsonOut, o.tsvOut); err != nil {
 				_, _ = fmt.Fprintln(stderr, err)
 				return exitError
 			}

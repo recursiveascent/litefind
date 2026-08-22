@@ -95,6 +95,7 @@ search flags:
   --count                    print match counts per table instead of matches
   --row                      attach the full row (typed values) to each match
   --json                     JSONL output, one object per match
+  --tsv                      tab-separated output for Unix pipelines
   --stats                    print a search statistics summary line
   --max-columns N            truncate displayed/snippet values to N chars
                               (default 200; 0 disables truncation)
@@ -110,6 +111,7 @@ frequency flags:
   -t/-T/-c                   use search table and column scoping
   -F/-i/-S/-w                filter grouped values when PATTERN is supplied
   --json                     emit {table,column,value,count} JSONL
+  --tsv                      emit table, column, value, count fields
   --all-tables               include shadow tables in target resolution
   --immutable                caller asserts the database cannot change
 
@@ -168,8 +170,8 @@ fts: searching existing FTS5 indexes:
     -F  -i  -S  -w  -c  --all-tables
   Case and tokenization are governed by the FTS5 index's own tokenizer;
   scope columns with FTS5's native syntax instead, e.g. --fts '{body}: timeout'.
-  Compatible with --fts: -t/-T, -l, -m, --count, --row, --json, --stats,
-  --max-columns (truncates snippets instead of match values).
+  Compatible with --fts: -t/-T, -l, -m, --count, --row, --json, --tsv,
+  --stats, --max-columns (truncates snippets instead of match values).
 
   FTS output differs from regex/fixed search: matches are row-level, not
   column-span-level — text: "table:rowid: snippet"; JSON:
@@ -181,8 +183,13 @@ output:
                     and rowid-fallback tables)
   json (--json):    {table, column, rowid|pk, value, spans}
                     ("row" added when --row is set)
+  tsv (--tsv):      table<TAB>column<TAB>identity<TAB>value
+                    (--row appends one scoped table's columns in schema order)
   fts text:         table:rowid: snippet
   fts json:         {table, rowid, snippet, rank}
+  fts tsv:          table<TAB>rowid<TAB>snippet
+  tsv escaping:     backslash/tab/newline/CR and control bytes are escaped;
+                    --json and --tsv are mutually exclusive
 
 immutable / wal:
   Databases are opened read-only (mode=ro). A live WAL database additionally

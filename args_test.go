@@ -133,6 +133,43 @@ func TestParseInvocationInvalidFlags(t *testing.T) {
 	}
 }
 
+func TestParseInvocationTSV(t *testing.T) {
+	inv, err := parseInvocation([]string{"timeout", "app.db", "--tsv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inv.opts.tsvOut {
+		t.Fatalf("opts = %+v, want tsvOut", inv.opts)
+	}
+
+	inv, err = parseInvocation([]string{"--freq", "-c", "level", "app.db", "--tsv"})
+	if err != nil || !inv.opts.tsvOut {
+		t.Fatalf("freq TSV parse: %+v, %v", inv, err)
+	}
+}
+
+func TestParseInvocationTSVConflicts(t *testing.T) {
+	for _, tc := range []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"needle", "app.db", "--tsv", "--json"}, "--json"},
+		{[]string{"needle", "app.db", "--tsv", "--stats"}, "--stats"},
+		{[]string{"needle", "app.db", "--tsv", "-l", "--count"}, "--count"},
+		{[]string{"needle", "app.db", "--tsv", "--row", "-l"}, "--row"},
+		{[]string{"needle", "app.db", "--tsv", "--row", "--count"}, "--row"},
+		{[]string{"needle", "app.db", "--tsv", "--row", "--all-tables"}, "--all-tables"},
+		{[]string{"--freq", "-c", "level", "app.db", "--tsv", "--json"}, "--json"},
+		{[]string{"--tables", "app.db", "--tsv"}, "--tsv"},
+		{[]string{"--schema", "app.db", "--tsv"}, "--tsv"},
+	} {
+		_, err := parseInvocation(tc.argv)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("parseInvocation(%v) error = %v, want substring %q", tc.argv, err, tc.want)
+		}
+	}
+}
+
 func TestParseInvocationEmptyFTSQuery(t *testing.T) {
 	// --fts with empty query should error.
 	for _, bad := range [][]string{
